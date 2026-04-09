@@ -1,5 +1,6 @@
 import { ChatPanel } from "./chat/chat-panel.js";
 import { ArtifactPanel } from "./artifacts/artifact-panel.js";
+import { StepGraph } from "./artifacts/step-graph.js";
 
 declare global {
   interface Window {
@@ -17,6 +18,7 @@ const statusBadge = document.getElementById("agent-status")!;
 
 const chat = new ChatPanel(messagesEl);
 const artifacts = new ArtifactPanel();
+const stepGraph = new StepGraph(document.getElementById("tab-steps")!);
 
 let streaming = false;
 
@@ -142,18 +144,35 @@ window.gxy3.onAgentEvent((event) => {
 window.gxy3.onUiRequest((request) => {
   const method = request.method;
 
-  if (method === "setWidget" && request.widgetKey === "plan") {
+  if (method === "setWidget") {
+    const key = request.widgetKey as string;
     const lines = request.widgetLines as string[] | undefined;
-    if (lines) {
+
+    if (key === "plan" && lines) {
       artifacts.setPlanText(lines.join("\n"));
       // Auto-switch to plan tab
-      tabs.forEach((t) => t.classList.remove("active"));
-      panels.forEach((p) => p.classList.remove("active"));
-      document.querySelector('[data-tab="plan"]')?.classList.add("active");
-      document.getElementById("tab-plan")?.classList.add("active");
+      switchTab("plan");
+    }
+
+    if (key === "steps" && lines) {
+      try {
+        const steps = JSON.parse(lines[0]);
+        stepGraph.render(steps);
+        // Switch to steps tab if a step is in progress
+        if (steps.some((s: { status: string }) => s.status === "in_progress")) {
+          switchTab("steps");
+        }
+      } catch { /* ignore parse errors */ }
     }
   }
 });
+
+function switchTab(name: string): void {
+  tabs.forEach((t) => t.classList.remove("active"));
+  panels.forEach((p) => p.classList.remove("active"));
+  document.querySelector(`[data-tab="${name}"]`)?.classList.add("active");
+  document.getElementById(`tab-${name}`)?.classList.add("active");
+}
 
 // ── Agent Status ──────────────────────────────────────────────────────────────
 

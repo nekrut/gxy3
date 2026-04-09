@@ -555,36 +555,113 @@ html, body {
   color: var(--bg);
 }
 
-/* ── Step Graph (placeholder) ──────────────────────────────────────────────── */
+/* ── Step DAG ──────────────────────────────────────────────────────────────── */
 
-.step-node {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
+.step-dag {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 16px;
+  gap: 0;
+}
+
+.dag-node {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 13px;
-  margin: 4px;
+  transition: border-color 0.2s;
 }
 
-.step-node.pending { border-left: 3px solid var(--text-dim); }
-.step-node.in_progress { border-left: 3px solid var(--accent); }
-.step-node.completed { border-left: 3px solid var(--success); }
-.step-node.failed { border-left: 3px solid var(--error); }
+.dag-node.dag-pending { border-left: 3px solid var(--text-dim); }
+.dag-node.dag-in_progress { border-left: 3px solid var(--accent); background: rgba(79, 195, 247, 0.05); }
+.dag-node.dag-completed { border-left: 3px solid var(--success); }
+.dag-node.dag-failed { border-left: 3px solid var(--error); background: rgba(239, 83, 80, 0.05); }
+.dag-node.dag-skipped { border-left: 3px solid var(--text-dim); opacity: 0.6; }
 
-.step-icon {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+.dag-indicator {
+  font-size: 18px;
+  line-height: 1;
   flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+  padding-top: 2px;
 }
 
-.step-icon.pending { background: var(--text-dim); }
-.step-icon.in_progress { background: var(--accent); animation: blink 1s step-end infinite; }
-.step-icon.completed { background: var(--success); }
-.step-icon.failed { background: var(--error); }
+.dag-indicator-pending { color: var(--text-dim); }
+.dag-indicator-in_progress { color: var(--accent); animation: blink 1s step-end infinite; }
+.dag-indicator-completed { color: var(--success); }
+.dag-indicator-failed { color: var(--error); }
+.dag-indicator-skipped { color: var(--text-dim); }
+
+.dag-content { flex: 1; min-width: 0; }
+
+.dag-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-bright);
+  margin-bottom: 2px;
+}
+
+.dag-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.dag-deps {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.dag-result {
+  font-size: 11px;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-deep);
+}
+
+.dag-result-completed { color: var(--success); }
+.dag-result-failed { color: var(--error); }
+
+.dag-arrow {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0;
+  color: var(--text-dim);
+  font-size: 14px;
+  position: relative;
+  height: 20px;
+}
+
+.dag-arrow::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+  transform: translateX(-50%);
+}
+
+.dag-arrow-done::before {
+  background: var(--success);
+}
+
+.dag-summary {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
 
 /* ── Animations ────────────────────────────────────────────────────────────── */
 

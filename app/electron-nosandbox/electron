@@ -1,0 +1,5 @@
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "$(date) wrapper called: CWD=$(pwd) args=$@" >> /tmp/gxy3-wrapper.log
+"$DIR/../node_modules/electron/dist/electron" --no-sandbox "$@"
+echo "$(date) electron exited: $?" >> /tmp/gxy3-wrapper.log

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gxy3</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Left pane: Chat -->
+    <div id="chat-pane" class="pane">
+      <div id="chat-header">
+        <span class="logo">gxy3</span>
+        <span id="agent-status" class="status-badge">connecting...</span>
+      </div>
+      <div id="messages"></div>
+      <div id="input-area">
+        <textarea
+          id="input"
+          placeholder="Describe your analysis..."
+          rows="1"
+        ></textarea>
+        <button id="send-btn" title="Send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
+          </svg>
+        </button>
+        <button id="abort-btn" title="Stop" class="hidden">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Draggable divider -->
+    <div id="divider"></div>
+
+    <!-- Right pane: Artifacts -->
+    <div id="artifact-pane" class="pane">
+      <div id="artifact-tabs">
+        <button class="tab active" data-tab="plan">Plan</button>
+        <button class="tab" data-tab="steps">Steps</button>
+        <button class="tab" data-tab="results">Results</button>
+      </div>
+      <div id="artifact-content">
+        <div id="tab-plan" class="tab-panel active">
+          <div class="empty-state">No analysis plan yet. Describe what you'd like to analyze in the chat.</div>
+          <div id="plan-toolbar" class="plan-toolbar hidden">
+            <div class="plan-mode-toggle">
+              <button class="mode-btn active" data-mode="rendered">Rendered</button>
+              <button class="mode-btn" data-mode="raw">Raw</button>
+            </div>
+          </div>
+          <div id="plan-rendered" class="plan-rendered hidden"></div>
+          <textarea id="plan-raw" class="plan-editor hidden" spellcheck="false"></textarea>
+          <div id="plan-actions" class="plan-actions hidden">
+            <button id="execute-plan-btn" class="plan-btn execute">Execute</button>
+          </div>
+        </div>
+        <div id="tab-steps" class="tab-panel">
+          <div class="empty-state">Pipeline steps will appear here once a plan is created.</div>
+        </div>
+        <div id="tab-results" class="tab-panel">
+          <div class="empty-state">Results will appear here as the analysis runs.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.ts"></script>
+</body>
+</html>

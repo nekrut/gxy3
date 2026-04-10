@@ -309,6 +309,24 @@ Implementation:
 - Results displayed in artifact pane
 - **Test**: Complete the prototype scenario from the Goal section
 
+### Phase 6: Artifact sharing via GitHub
+
+Agent-driven git operations. No new Preferences UI — keep settings simple.
+
+- New `git_push` tool (or the agent just uses `run_command`):
+  - Detects available auth in this order:
+    1. `gh` CLI authenticated (`gh auth status`) → use it
+    2. SSH key configured (`ssh -T git@github.com`) → use it
+    3. Neither → ask the user in chat what to do (create PAT, install gh, etc.)
+  - Runs git init/add/commit/push in the analysis directory
+  - Creates the remote repo on demand via `gh repo create` if needed
+- Usage: user says "push this analysis to GitHub" → agent handles everything
+- Author name/email: read from global git config (`git config user.name`); if unset,
+  agent asks the user once and saves via `git config --global`
+- Notebook auto-commit already happens locally (Phase 2); push is a separate action
+- **Test**: After running an analysis, say "push to github" — agent pushes to a new
+  or existing repo, reports the URL in chat
+
 ## References
 
 - `/media/anton/data/git/pi-galaxy-analyst/` — patterns for extension architecture, tools, notebook, Electron shell

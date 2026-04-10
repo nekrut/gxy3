@@ -1,6 +1,8 @@
 import { ipcMain, dialog, BrowserWindow, shell } from "electron";
 import type { AgentManager } from "./agent.js";
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 
 function log(...args: unknown[]): void {
   console.log("[ipc]", ...args);
@@ -37,6 +39,15 @@ export function registerIpcHandlers(agent: AgentManager): void {
     agent.start();
   });
 
+  ipcMain.handle("dialog:browse-directory", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "Choose directory",
+      defaultPath: agent.getCwd(),
+      properties: ["openDirectory", "createDirectory"],
+    });
+    return result.filePaths[0] ?? null;
+  });
+
   ipcMain.handle("dialog:select-directory", async () => {
     const result = await dialog.showOpenDialog({
       title: "Choose working directory",
@@ -53,6 +64,35 @@ export function registerIpcHandlers(agent: AgentManager): void {
 
   ipcMain.handle("agent:get-cwd", () => {
     return agent.getCwd();
+  });
+
+  ipcMain.handle("config:get", () => {
+    const configPath = path.join(os.homedir(), ".gxy3", "config.json");
+    try {
+      if (fs.existsSync(configPath)) {
+        return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      }
+    } catch (err) {
+      log("config:get failed:", err);
+    }
+    return {};
+  });
+
+  ipcMain.handle("config:save", async (_e, config: Record<string, unknown>) => {
+    const configDir = path.join(os.homedir(), ".gxy3");
+    const configPath = path.join(configDir, "config.json");
+    try {
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+      log("config saved");
+      // Restart agent subprocess to pick up new provider/model/API key
+      agent.stop();
+      agent.start();
+      return { success: true };
+    } catch (err) {
+      log("config:save failed:", err);
+      return { success: false, error: String(err) };
+    }
   });
 
   ipcMain.handle("file:open", async (_e, filePath: string) => {

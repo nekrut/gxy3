@@ -80,6 +80,78 @@
     </div>
   </div>
 
+  <!-- Preferences Modal -->
+  <div id="prefs-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Preferences</h2>
+        <button id="prefs-close" class="modal-close" title="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <section class="prefs-section">
+          <h3>LLM Provider</h3>
+          <div class="prefs-row">
+            <label for="prefs-provider">Provider</label>
+            <select id="prefs-provider">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="google">Google (Gemini)</option>
+              <option value="mistral">Mistral</option>
+              <option value="groq">Groq</option>
+              <option value="xai">xAI</option>
+            </select>
+          </div>
+          <div class="prefs-row">
+            <label for="prefs-model">Model</label>
+            <input id="prefs-model" type="text" placeholder="claude-opus-4-6" />
+          </div>
+          <div class="prefs-row">
+            <label for="prefs-api-key">API Key</label>
+            <input id="prefs-api-key" type="password" placeholder="sk-..." />
+          </div>
+        </section>
+
+        <section class="prefs-section">
+          <h3>Galaxy</h3>
+          <div class="prefs-row">
+            <label for="prefs-galaxy-url">URL</label>
+            <input id="prefs-galaxy-url" type="text" placeholder="https://usegalaxy.org" />
+          </div>
+          <div class="prefs-row">
+            <label for="prefs-galaxy-key">API Key</label>
+            <input id="prefs-galaxy-key" type="password" placeholder="Galaxy API key" />
+          </div>
+        </section>
+
+        <section class="prefs-section">
+          <h3>Analysis</h3>
+          <div class="prefs-row">
+            <label for="prefs-default-cwd">Default directory</label>
+            <div class="prefs-row-with-btn">
+              <input id="prefs-default-cwd" type="text" placeholder="~/.gxy3/analyses" />
+              <button id="prefs-browse-cwd" class="plan-btn">Browse</button>
+            </div>
+          </div>
+          <div class="prefs-row">
+            <label for="prefs-conda-bin">Package manager</label>
+            <select id="prefs-conda-bin">
+              <option value="auto">Auto (mamba if available)</option>
+              <option value="mamba">mamba</option>
+              <option value="conda">conda</option>
+            </select>
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <span id="prefs-restart-note">Changes will restart the agent session.</span>
+        <div class="modal-actions">
+          <button id="prefs-cancel" class="plan-btn">Cancel</button>
+          <button id="prefs-save" class="plan-btn execute">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="./app.ts"></script>
 </body>
 </html>

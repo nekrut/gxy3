@@ -12,6 +12,8 @@ export interface Gxy3Config {
     active: string | null;
     profiles: Record<string, { url: string; apiKey: string }>;
   };
+  defaultCwd?: string;
+  condaBin?: "mamba" | "conda" | "auto";
 }
 
 function getConfigPath(): string {

@@ -156,13 +156,20 @@ async function refreshCwd(): Promise<void> {
   } catch { /* getCwd not available yet */ }
 }
 
+function applyCwdChange(dir: string): void {
+  cwdPathEl.textContent = dir;
+  cwdPathEl.title = dir;
+  window.gxy3.prompt(`[system] Analysis directory changed to: ${dir}`);
+}
+
 cwdChangeBtn.addEventListener("click", async () => {
   const dir = await window.gxy3.selectDirectory();
-  if (dir) {
-    cwdPathEl.textContent = dir;
-    cwdPathEl.title = dir;
-    window.gxy3.prompt(`[system] Analysis directory changed to: ${dir}`);
-  }
+  if (dir) applyCwdChange(dir);
+});
+
+// File > Open Analysis Directory menu triggers this
+window.gxy3.onCwdChanged((dir) => {
+  applyCwdChange(dir);
 });
 
 refreshCwd();
@@ -430,6 +437,118 @@ executePlanBtn.addEventListener("click", () => {
     `The user has approved the following plan and wants you to execute it step by step. ` +
     `Report progress as you go.\n\nPlan:\n${text}`
   );
+});
+
+// ── Preferences ──────────────────────────────────────────────────────────────
+
+const prefsOverlay = document.getElementById("prefs-overlay")!;
+const prefsClose = document.getElementById("prefs-close")!;
+const prefsCancel = document.getElementById("prefs-cancel")!;
+const prefsSave = document.getElementById("prefs-save")!;
+const prefsBrowseCwd = document.getElementById("prefs-browse-cwd")!;
+
+const prefsProvider = document.getElementById("prefs-provider") as HTMLSelectElement;
+const prefsModel = document.getElementById("prefs-model") as HTMLInputElement;
+const prefsApiKey = document.getElementById("prefs-api-key") as HTMLInputElement;
+const prefsGalaxyUrl = document.getElementById("prefs-galaxy-url") as HTMLInputElement;
+const prefsGalaxyKey = document.getElementById("prefs-galaxy-key") as HTMLInputElement;
+const prefsDefaultCwd = document.getElementById("prefs-default-cwd") as HTMLInputElement;
+const prefsCondaBin = document.getElementById("prefs-conda-bin") as HTMLSelectElement;
+
+async function openPreferences(): Promise<void> {
+  const config = await window.gxy3.getConfig() as {
+    llm?: { provider?: string; apiKey?: string; model?: string };
+    galaxy?: { active: string | null; profiles: Record<string, { url: string; apiKey: string }> };
+    defaultCwd?: string;
+    condaBin?: string;
+  };
+
+  prefsProvider.value = config.llm?.provider || "anthropic";
+  prefsModel.value = config.llm?.model || "";
+  prefsApiKey.value = config.llm?.apiKey || "";
+
+  // Galaxy: use active profile
+  const activeProfile = config.galaxy?.active
+    ? config.galaxy.profiles?.[config.galaxy.active]
+    : null;
+  prefsGalaxyUrl.value = activeProfile?.url || "";
+  prefsGalaxyKey.value = activeProfile?.apiKey || "";
+
+  prefsDefaultCwd.value = config.defaultCwd || "";
+  prefsCondaBin.value = config.condaBin || "auto";
+
+  prefsOverlay.classList.remove("hidden");
+}
+
+function closePreferences(): void {
+  prefsOverlay.classList.add("hidden");
+}
+
+async function savePreferences(): Promise<void> {
+  // Preserve existing config (galaxy profiles) and merge
+  const current = await window.gxy3.getConfig() as {
+    llm?: { provider?: string; apiKey?: string; model?: string };
+    galaxy?: { active: string | null; profiles: Record<string, { url: string; apiKey: string }> };
+    defaultCwd?: string;
+    condaBin?: string;
+  };
+
+  const config: typeof current = { ...current };
+
+  config.llm = {
+    provider: prefsProvider.value,
+    model: prefsModel.value.trim() || undefined,
+    apiKey: prefsApiKey.value.trim() || undefined,
+  };
+
+  // Galaxy: save as "default" profile
+  if (prefsGalaxyUrl.value.trim() || prefsGalaxyKey.value.trim()) {
+    config.galaxy = {
+      active: "default",
+      profiles: {
+        ...(current.galaxy?.profiles || {}),
+        default: {
+          url: prefsGalaxyUrl.value.trim(),
+          apiKey: prefsGalaxyKey.value.trim(),
+        },
+      },
+    };
+  } else {
+    delete config.galaxy;
+  }
+
+  config.defaultCwd = prefsDefaultCwd.value.trim() || undefined;
+  config.condaBin = (prefsCondaBin.value as "auto" | "mamba" | "conda") || undefined;
+
+  const result = await window.gxy3.saveConfig(config as Record<string, unknown>);
+  if (result.success) {
+    closePreferences();
+    chat.addUserMessage("[system] Preferences saved. Agent restarted.");
+  } else {
+    alert(`Failed to save preferences: ${result.error}`);
+  }
+}
+
+prefsClose.addEventListener("click", closePreferences);
+prefsCancel.addEventListener("click", closePreferences);
+prefsSave.addEventListener("click", savePreferences);
+prefsOverlay.addEventListener("click", (e) => {
+  if (e.target === prefsOverlay) closePreferences();
+});
+
+prefsBrowseCwd.addEventListener("click", async () => {
+  const dir = await window.gxy3.browseDirectory();
+  if (dir) prefsDefaultCwd.value = dir;
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !prefsOverlay.classList.contains("hidden")) {
+    closePreferences();
+  }
+});
+
+window.gxy3.onOpenPreferences(() => {
+  openPreferences();
 });
 
 // ── Focus input on load ───────────────────────────────────────────────────────

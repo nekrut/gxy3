@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, dialog } from "electron";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { registerIpcHandlers } from "./ipc-handlers.js";
@@ -53,7 +54,20 @@ let mainWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
 
 function getDefaultCwd(): string {
-  const cwd = process.env.GXY3_CWD || DEFAULT_CWD;
+  // Priority: env var > config.json > hardcoded default
+  let cwd = process.env.GXY3_CWD;
+  if (!cwd) {
+    try {
+      const configPath = path.join(GXY3_DIR, "config.json");
+      if (fs.existsSync(configPath)) {
+        const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        if (cfg.defaultCwd) cwd = cfg.defaultCwd;
+      }
+    } catch {}
+  }
+  cwd = cwd || DEFAULT_CWD;
+  // Expand ~
+  if (cwd.startsWith("~")) cwd = path.join(os.homedir(), cwd.slice(1));
   mkdirSync(cwd, { recursive: true });
   return cwd;
 }
@@ -107,12 +121,22 @@ function createWindow(cwd: string): void {
   });
 }
 
+function openPreferences(): void {
+  if (mainWindow) mainWindow.webContents.send("menu:open-preferences");
+}
+
 function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: "gxy3",
       submenu: [
         { role: "about" },
+        { type: "separator" },
+        {
+          label: "Preferences...",
+          accelerator: "CmdOrCtrl+,",
+          click: openPreferences,
+        },
         { type: "separator" },
         { role: "quit" },
       ],
@@ -124,17 +148,18 @@ function buildMenu(): void {
           label: "Open Analysis Directory...",
           accelerator: "CmdOrCtrl+O",
           click: async () => {
-            if (!agentManager) return;
+            if (!agentManager || !mainWindow) return;
             const result = await dialog.showOpenDialog({
               title: "Choose analysis directory",
               defaultPath: agentManager.getCwd(),
               properties: ["openDirectory", "createDirectory"],
             });
             if (result.canceled || result.filePaths.length === 0) return;
-            log("switching cwd to:", result.filePaths[0]);
-            agentManager.setCwd(result.filePaths[0]);
-            agentManager.stop();
-            agentManager.start();
+            const dir = result.filePaths[0];
+            log("switching cwd to:", dir);
+            agentManager.setCwd(dir);
+            // Notify renderer to update UI and inform agent — no restart
+            mainWindow.webContents.send("agent:cwd-changed", dir);
           },
         },
       ],
@@ -149,6 +174,12 @@ function buildMenu(): void {
         { role: "copy" },
         { role: "paste" },
         { role: "selectAll" },
+        { type: "separator" },
+        {
+          label: "Preferences...",
+          accelerator: "CmdOrCtrl+,",
+          click: openPreferences,
+        },
       ],
     },
     {

@@ -102,8 +102,21 @@ function emitSteps(ctx: { ui: { setWidget(key: string, lines: string[]): void } 
   ctx.ui.setWidget("steps", [stepsJson]);
 }
 
-/** Detect mamba or fall back to conda. */
+/** Detect package manager: respects config.condaBin preference. */
 function condaBin(): string {
+  // Read config preference
+  let pref: string = "auto";
+  try {
+    const cfgPath = path.join(process.env.HOME || "", ".gxy3", "config.json");
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+      if (cfg.condaBin) pref = cfg.condaBin;
+    }
+  } catch { /* ignore */ }
+
+  if (pref === "mamba" || pref === "conda") return pref;
+
+  // auto: prefer mamba if available
   try {
     execSync("mamba --version", { stdio: "ignore" });
     return "mamba";

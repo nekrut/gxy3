@@ -19,14 +19,19 @@ export interface Gxy3API {
   getState(): Promise<unknown>;
   getCwd(): Promise<string>;
   openFile(filePath: string): Promise<{ opened: boolean; error?: string }>;
+  getConfig(): Promise<Record<string, unknown>>;
+  saveConfig(config: Record<string, unknown>): Promise<{ success: boolean; error?: string }>;
   respondToUiRequest(id: string, response: Record<string, unknown>): void;
   restartAgent(): Promise<void>;
   selectDirectory(): Promise<string | null>;
+  browseDirectory(): Promise<string | null>;
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;
   onUiRequest(callback: (request: UiRequest) => void): () => void;
   onAgentStatus(
     callback: (status: "running" | "stopped" | "error", msg?: string) => void
   ): () => void;
+  onCwdChanged(callback: (dir: string) => void): () => void;
+  onOpenPreferences(callback: () => void): () => void;
 }
 
 const api: Gxy3API = {
@@ -36,6 +41,8 @@ const api: Gxy3API = {
   getState: () => ipcRenderer.invoke("agent:get-state"),
   getCwd: () => ipcRenderer.invoke("agent:get-cwd"),
   openFile: (filePath) => ipcRenderer.invoke("file:open", filePath),
+  getConfig: () => ipcRenderer.invoke("config:get"),
+  saveConfig: (config) => ipcRenderer.invoke("config:save", config),
 
   respondToUiRequest: (id, response) => {
     ipcRenderer.send("agent:ui-response", {
@@ -53,6 +60,7 @@ const api: Gxy3API = {
 
   restartAgent: () => ipcRenderer.invoke("agent:restart"),
   selectDirectory: () => ipcRenderer.invoke("dialog:select-directory"),
+  browseDirectory: () => ipcRenderer.invoke("dialog:browse-directory"),
 
   onAgentEvent: (callback) => {
     const handler = (_e: unknown, event: AgentEvent) => callback(event);
@@ -68,6 +76,18 @@ const api: Gxy3API = {
     ) => callback(status, msg);
     ipcRenderer.on("agent:status", handler);
     return () => ipcRenderer.removeListener("agent:status", handler);
+  },
+
+  onCwdChanged: (callback) => {
+    const handler = (_e: unknown, dir: string) => callback(dir);
+    ipcRenderer.on("agent:cwd-changed", handler);
+    return () => ipcRenderer.removeListener("agent:cwd-changed", handler);
+  },
+
+  onOpenPreferences: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("menu:open-preferences", handler);
+    return () => ipcRenderer.removeListener("menu:open-preferences", handler);
   },
 };
 

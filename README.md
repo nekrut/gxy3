@@ -58,7 +58,9 @@ Electron App
 - `run_command` — shell execution with auto conda env activation, background mode, timeout
 - `check_process` / `cancel_command` — process management
 - `report_result` — typed results to Results tab (markdown, tables, images, file links)
-- System prompt instructs agent to always use bioconda and report results
+- HTML reports open in a new Electron window
+- Session token/cost display in header (pricing for Claude 4.5/4.6, GPT-4o, o1, Gemini 2.5)
+- Preferences dialog (⌘,): LLM provider/model/key, Galaxy credentials, default directory, package manager
 
 ### Phase 4: Galaxy Bridge (planned)
 - MCP bridge to galaxy-mcp subprocess
@@ -68,6 +70,10 @@ Electron App
 ### Phase 5: End-to-End (planned)
 - Full prototype scenario: read paper, plan assembly, execute, display results
 - Workflow reader (learn from existing Snakemake/Nextflow/CWL pipelines)
+
+### Phase 6: GitHub artifact sharing (planned)
+- Agent-driven `git push` via existing `gh` CLI / SSH / PAT
+- No new UI — agent detects auth and handles everything through chat
 
 ## Running
 

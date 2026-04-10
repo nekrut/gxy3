@@ -72,6 +72,29 @@ function getDefaultCwd(): string {
   return cwd;
 }
 
+/**
+ * Open an external URL in a new BrowserWindow. Used for things like IGV.js
+ * viewers served on localhost, HTML reports, external docs — anything that
+ * would otherwise navigate the main window away from the gxy3 renderer.
+ */
+function openExternalUrlWindow(url: string): void {
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    title: url,
+    webPreferences: {
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  // Minimal menu for the popup so user can reload / go back / zoom
+  win.setMenuBarVisibility(true);
+  win.loadURL(url).catch((err) => {
+    log("failed to load external url:", url, err);
+  });
+}
+
 function createWindow(cwd: string): void {
   log("creating window, cwd:", cwd);
   const saved = loadWindowState();
@@ -93,6 +116,26 @@ function createWindow(cwd: string): void {
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
     mainWindow?.focus();
+  });
+
+  // Prevent the main window from ever navigating away from the renderer.
+  // External URLs (e.g. IGV.js viewers, reports served on localhost) should
+  // always open in a new window so the user can click Back to return to gxy3.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    // Allow in-app navigation to the Vite dev server or the packaged index.
+    const devUrl = MAIN_WINDOW_VITE_DEV_SERVER_URL;
+    if (devUrl && url.startsWith(devUrl)) return;
+    if (url.startsWith("file://")) return;
+    event.preventDefault();
+    log("intercepted external navigation → new window:", url);
+    openExternalUrlWindow(url);
+  });
+
+  // target="_blank" links / window.open() calls → new Electron window
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    log("window open handler → new window:", url);
+    openExternalUrlWindow(url);
+    return { action: "deny" };
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

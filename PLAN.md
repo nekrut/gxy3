@@ -412,21 +412,139 @@ When generate_test_data is called:
 5. Click **"Execute"** from form → full run with configured params
 6. From plan view, click **"Execute anyway"** → skips param review, runs with defaults
 
-### Phase 5: Galaxy Bridge
+### Phase 5: Plan-First Workflow
+
+#### Context
+
+For real reproducibility every analysis must start with a written plan that the user explicitly approves before any execution. Today the agent can call `run_command` directly, the renderer has an "Execute anyway" button that bypasses parameter review entirely, and Pi.dev's built-in `bash`/`write`/`edit` tools sit outside any gxy3 control. Nothing in the system enforces a "plan → review → approve → execute" flow.
+
+User decision: **soft warning, never hard-block**. The system prompt strictly enforces plan-first; tools emit warnings when executed without an approved plan; but no tool refuses to run. This preserves freedom for ad-hoc exploration while making the "right path" visually obvious.
+
+#### Plan state machine
+
+Extend the `Plan` interface in `extensions/gxy3/index.ts`:
+
+```typescript
+interface Plan {
+  ...existing fields...
+  approvalState: "draft" | "approved" | "executing" | "completed";
+  approvedAt?: string;
+  approvedParameters?: Record<string, unknown>;
+  approvalEvents: ApprovalEvent[];   // append-only log
+}
+
+interface ApprovalEvent {
+  timestamp: string;
+  action: "draft_created" | "approved" | "execution_started" |
+          "execution_completed" | "plan_modified_after_approval";
+  details?: string;
+}
+```
+
+Transitions:
+- `display_plan` → `draft`. If a previously-approved plan is replaced, log `plan_modified_after_approval`.
+- User clicks Execute / Test run → renderer sends approval prompt → agent calls new `mark_plan_approved` tool → state becomes `approved`, snapshot taken.
+- First `run_command`/`install_tools` after approval → `executing`.
+- Last `update_step(completed)` → `completed`.
+- All transitions append to `approvalEvents`, persisted in the notebook.
+
+#### New tool: `mark_plan_approved`
+
+Called by the agent when the user clicks Execute. Parameters: `parameters: Record<string, unknown>`. Sets state to `approved`, snapshots params, appends event. Returns reminder to call `reset_plan_steps` next.
+
+#### Soft warning on un-approved execution
+
+In `run_command` and `install_tools`, before executing, compute a warning string based on `currentPlan?.approvalState`:
+
+- No plan → "⚠ No plan exists. This command runs ungoverned and won't appear in the DAG."
+- `draft` → "⚠ Plan not approved. The user has not clicked Execute. Reproducibility broken."
+- `completed` → "⚠ Plan marked completed. This command runs after the plan finished."
+
+The warning is:
+- Prepended to the tool result text (so the agent sees it on the next turn)
+- Persisted into the notebook
+- Emitted to the **agent shell** as a red `tool-error` line
+- Counted in a session counter for the RO-Crate metadata
+
+Execution still happens — soft enforcement.
+
+#### System prompt rewrite
+
+Replace the execution-workflow guidance in `before_agent_start` with a strict plan-first contract:
+
+```
+PLAN-FIRST CONTRACT (CRITICAL):
+
+1. EVERY analysis MUST start with display_plan. Your FIRST response to any
+   request that requires execution is a plan via display_plan — NEVER a
+   direct tool call to run_command, bash, install_tools, etc.
+
+2. After display_plan, WAIT. Do not execute anything until you receive an
+   explicit message that the plan was approved ("User clicked Execute...").
+
+3. When approved, your FIRST tool call MUST be mark_plan_approved with the
+   configured parameters. Then reset_plan_steps. Then execute step by step.
+
+4. NEVER use Pi.dev's built-in bash/write/edit for execution work. ALWAYS
+   use gxy3's run_command. The bash tool is only for trivial informational
+   queries (e.g., "ls" to peek at a directory).
+
+5. If you need to modify the plan mid-run, call display_plan again. This
+   resets approval — STOP and ask the user to re-approve.
+
+6. If you find yourself wanting to run a command and no approved plan
+   exists, STOP. Call display_plan first.
+
+The plan is the contract. Without an approved plan there is no reproducibility.
+```
+
+#### Renderer changes
+
+- **Remove "Execute anyway" button entirely.** No path bypasses plan creation.
+- "Review parameters" still triggers `analyze_plan_parameters`.
+- "Test run" / "Execute" buttons send a structured approval prompt that asks the agent to call `mark_plan_approved` first, then `reset_plan_steps`, then execute.
+- **New approval indicator** in the masthead between the model badge and the usage bar:
+  - `● Plan: none` (grey) — no plan yet
+  - `● Plan: draft` (orange) — shown, not approved
+  - `● Plan: approved` (blue) — approved, not running
+  - `● Plan: executing` (animated blue)
+  - `● Plan: completed` (green)
+- The badge updates via a new `setStatus("approval_state", ...)` widget key emitted by the extension on every state transition.
+
+#### Files to modify
+
+| Path | Action |
+|---|---|
+| `extensions/gxy3/index.ts` | Add `approvalState` + `ApprovalEvent` to Plan; new `mark_plan_approved` tool; warning logic in `run_command` / `install_tools`; rewritten system prompt; emit `setStatus("approval_state", ...)` on transitions |
+| `app/src/renderer/index.html` | Remove "Execute anyway" button; add approval badge in masthead |
+| `app/src/renderer/app.ts` | Remove Execute Anyway handler; update Test/Execute handlers to send approval prompt; listen for `setStatus("approval_state", ...)` and update badge |
+| `app/src/renderer/styles.css` | Approval badge styles |
+
+#### Test
+
+1. Fresh instance + `/new`
+2. "Plan an S. aureus assembly" → agent calls `display_plan` → masthead **● Plan: draft** (orange)
+3. Without clicking Execute, type "now run it" → agent should refuse and ask to approve. If it cheats, the warning appears in the result + agent shell + notebook
+4. Click "Review parameters" → form appears
+5. Click "Execute" → agent calls `mark_plan_approved` → masthead **● Plan: approved** (blue) → execution begins → **● Plan: executing**
+6. Notebook now contains `approvalEvents` with timestamps
+7. While executing, ask "add a visualization step" → agent calls `display_plan` again → masthead drops back to **● Plan: draft** with `plan_modified_after_approval` event
+
+### Phase 6: Galaxy Bridge
 - MCP bridge to galaxy-mcp subprocess
 - Galaxy tools (connect, run, upload, get results)
 - Mixed execution (some steps local, some on Galaxy)
 - State sync to Galaxy server
 - **Test**: Connect to usegalaxy.org, run a tool, retrieve results
 
-### Phase 6: End-to-End Prototype
+### Phase 7: End-to-End Prototype
 - Full S_aureus scenario: "analyze this paper, assemble with autocycler"
 - Agent reads PDF, reads existing S_aureus scripts as examples
 - Agent creates plan, user approves, agent executes
 - Results displayed in artifact pane
 - **Test**: Complete the prototype scenario from the Goal section
 
-### Phase 7: Artifact sharing via GitHub
+### Phase 8: Artifact sharing via GitHub
 
 Agent-driven git operations. No new Preferences UI — keep settings simple.
 
@@ -443,6 +561,92 @@ Agent-driven git operations. No new Preferences UI — keep settings simple.
 - Notebook auto-commit already happens locally (Phase 2); push is a separate action
 - **Test**: After running an analysis, say "push to github" — agent pushes to a new
   or existing repo, reports the URL in chat
+
+### Phase 9: RO-Crate Session Packaging (LAST)
+
+#### Context
+
+Once an analysis is complete the user needs a portable, standards-compliant container of everything that happened: plan, parameters, environment, commands, results, provenance. Without this, sharing means sending a tarball with no metadata; replay is impossible.
+
+User decision: **Workflow Run RO-Crate** (the WorkflowHub / Bioschemas standard, <https://www.researchobject.org/workflow-run-crate/>). JSON-LD metadata + the full analysis directory, optionally zipped. Supported by WorkflowHub, Galaxy, nf-core.
+
+#### What gets captured
+
+1. **Plan** — markdown content + structured steps + commands/results
+2. **Parameters** — raw form spec, configured values, the approved snapshot
+3. **Approval events** — full timeline of `draft → approved → executing → completed`
+4. **Conda environment** — `conda env export -n <env>` YAML output
+5. **Commands** — every shell command that ran with stdout/stderr summaries
+6. **Result files** — anything written to the analysis directory
+7. **Chat history** — the full LLM conversation (Pi.dev already writes this to `~/.pi/agent/sessions/`)
+8. **Tool versions** — package versions from the conda env
+9. **Provenance** — model used, costs, timestamps, gxy3 version
+10. **Warnings** — count of unapproved commands, errors
+
+#### Output structure
+
+```
+<analysis_dir>/
+├── ro-crate-metadata.json           # JSON-LD root descriptor
+├── ro-crate-preview.html            # human-readable summary
+├── plan.md                          # the plan (existing notebook)
+├── parameters.json                  # configured parameters
+├── approval-log.json                # approval events
+├── environment.yaml                 # conda env export
+├── chat-history.jsonl               # LLM conversation
+├── commands.jsonl                   # every command + result
+├── reference/                       # input data (existing)
+├── results/                         # output files (existing)
+└── ...
+```
+
+The `ro-crate-metadata.json` is JSON-LD declaring:
+- The directory as a `Dataset` with `conformsTo` Workflow Run Crate profile
+- Every file with MIME type and role (input/output/intermediate)
+- The workflow as a `ComputationalWorkflow` with steps as `HowToStep`
+- Each tool execution as a `CreateAction` with start/end times, agent, IO refs
+- The agent as a `SoftwareAgent` with model id and provider
+
+#### Implementation
+
+**New tool: `package_session`**
+
+```typescript
+pi.registerTool({
+  name: "package_session",
+  description: "Package the current analysis as a Workflow Run RO-Crate. " +
+    "Creates ro-crate-metadata.json and optional .crate.zip in the analysis " +
+    "directory. Call when user asks to 'package', 'export', 'share', 'wrap up'.",
+  parameters: Type.Object({
+    zip: Type.Optional(Type.Boolean({ description: "Also create a .crate.zip" })),
+  }),
+  // ... walks the analysis dir, snapshots conda env, exports approval log + 
+  // parameters + commands, generates JSON-LD + preview HTML, optionally zips
+});
+```
+
+**New file: `extensions/gxy3/ro-crate-builder.ts`** — `class ROCrateBuilder` with methods to scan files, classify them, build the JSON-LD `@graph`, and emit the metadata + preview HTML.
+
+**New slash command: `/package`** — user-facing shortcut that sends a prompt asking the agent to call `package_session(zip: true)`.
+
+#### Files to modify / create
+
+| Path | Action |
+|---|---|
+| `extensions/gxy3/index.ts` | Add `package_session` tool |
+| `extensions/gxy3/ro-crate-builder.ts` | **NEW** — JSON-LD generator + file scanner |
+| `app/src/renderer/app.ts` | Add `/package` slash command |
+| `app/src/renderer/index.html` | Update input hint to mention `/package` |
+
+#### Test
+
+1. Run a complete S_aureus analysis (Phases 5–8 done)
+2. Type `/package` → agent calls `package_session(zip: true)`
+3. Verify `<analysis_dir>/ro-crate-metadata.json` exists and is valid JSON-LD
+4. Verify `<analysis_dir>/<title>.crate.zip` exists and unpacks cleanly
+5. Validate with the `rocrate-validator` Python package
+6. Open `ro-crate-preview.html` → shows plan title, steps, files, agent info
+7. Upload the `.crate.zip` to WorkflowHub → accepted
 
 ### UI refresh: Step graph → React Flow
 
@@ -505,6 +709,139 @@ Bundle impact: ~150 KB gzipped — fine for an Electron desktop app.
 8. Click again → panel closes
 9. Pan/zoom with mouse; Controls "fit view" re-frames
 10. Trigger an update from the agent (test run) — DAG re-renders without losing pan/zoom inappropriately
+
+### Multi-window sessions + Recent Analyses
+
+Today gxy3 is one window, one session. There's no easy way to return to a previous analysis and no way to run two analyses concurrently in the same app. The chosen approach (user's choice: **Option A**, not a Claude-style chat-list sidebar) is:
+
+- **Each gxy3 window is a fully-isolated session.** Multi-window already gives true parallel execution — two conda installs, two pipelines side-by-side.
+- **File → New Session Window** (⇧⌘N) spawns a second window in the same Electron process, independent agent and cwd
+- **File → Open Recent** dynamic submenu lists the last ~10 analyses with relative timestamps; click → current window switches cwd, agent restarts with `--continue`, extension re-hydrates the plan from the notebook
+- **Session picker on first launch**: a non-blocking modal that shows recent analyses and lets the user continue one or start fresh
+- **NO state-swapping without restart** — switching sessions = stop current agent + start new one. No mid-execution switches. This removes the nastiest edge cases and makes the feature simple.
+
+#### Blocker to fix first
+
+The current main process has a global `mainWindow` and `agentManager`, and `registerIpcHandlers()` uses `ipcMain.handle()` which silently overwrites handlers. Calling `createWindow()` twice would double-register handlers and orphan the first window. Fix: **per-window state map + IPC dispatch by sender**:
+
+```typescript
+interface WindowState { window: BrowserWindow; agent: AgentManager; }
+const windows = new Map<number, WindowState>();  // keyed by window.id
+
+function getAgentForEvent(event: Electron.IpcMainInvokeEvent): AgentManager | null {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return win ? windows.get(win.id)?.agent ?? null : null;
+}
+
+ipcMain.handle("agent:prompt", async (event, message) => {
+  getAgentForEvent(event)?.send({ type: "prompt", message });
+});
+// ...all other handlers use the same pattern
+```
+
+IPC registration runs **once at app startup**, not per window.
+
+#### Global session registry: `~/.gxy3/recent-analyses.json`
+
+**This file is the single source of truth for "all sessions gxy3 knows about."** It's a flat list of absolute paths, so sessions can live anywhere on disk — under `~/.gxy3/analyses/` (the default location for new sessions), under `~/projects/paper/mrsa-data/`, `/scratch/bio/rnaseq/`, or any arbitrary path the user picks.
+
+**Format:**
+```json
+{
+  "entries": [
+    {
+      "path": "/scratch/bio/kaku2022-variants",
+      "title": "MRSA variant calling — Kaku et al. 2022",
+      "planId": "abc12345",
+      "updated": "2026-04-10T13:45:00Z",
+      "status": "completed"
+    },
+    {
+      "path": "/home/anton/.gxy3/analyses/s-aureus-assembly",
+      "title": "S. aureus hybrid assembly",
+      "planId": "def67890",
+      "updated": "2026-04-09T20:01:00Z",
+      "status": "draft"
+    }
+  ]
+}
+```
+
+**When it's written/updated:**
+1. **On any cwd change** (Open Analysis Directory, Open Recent, session picker click, default-cwd-on-launch): the main process pushes the new cwd to the top of the list (or updates the existing entry). If no `*-notebook.md` exists in the new cwd yet, title is set to the cwd basename.
+2. **On `saveNotebook()`** in the extension: the extension emits a `notebook_updated` status message with `{path, title, planId, updated, status}` payload. The renderer forwards it to the main process via a new IPC channel `analyses:update-entry`. Main process updates the matching entry (by path).
+3. **On plan approval state transitions**: `status` field is updated (`draft` → `approved` → `executing` → `completed`).
+
+**When it's read:**
+- On File menu open → build the Open Recent submenu
+- On first window load → to decide whether to show the session picker
+- On app startup → sanity-check that listed paths still exist; drop any that don't
+
+**Bootstrap fallback** (first run on an upgrading install, or if the file is missing): walk `~/.gxy3/analyses/*/` for `*-notebook.md` files (the default location where old sessions would be), parse YAML frontmatter for title + updated, populate the file. Skipped on subsequent launches.
+
+**User-specific directories** (like `/scratch/bio/...`) are ONLY discovered via use — gxy3 never scans outside `~/.gxy3/analyses/`. Once the user picks a custom dir via Open Analysis Directory, it's added to the registry and appears in Recent from then on.
+
+**Deduplication:** entries are keyed by absolute path. If the user opens the same cwd twice, the existing entry moves to the top (not duplicated).
+
+#### What happens on cwd change (the unified flow)
+
+Three different actions all end up executing the same sequence in the **current window**:
+
+- **File → Open Analysis Directory…** (existing menu item, ⌘O) — user picks any directory
+- **File → Open Recent →** a recent analysis
+- **Session picker → Continue** on first launch
+
+The sequence:
+
+1. If the current window's agent is **executing a tool** (plan in `executing` state, or a run_command is live), **refuse** the switch and show a toast:
+   *"Analysis is running. Wait for it to finish, abort first, or open in a new window (⇧⌘N)."*
+2. `agent.stop()` — kill the current agent subprocess. Clear pending IPC responses.
+3. `agent.setCwd(newDir)` — update the cwd variable (already resets `hasStartedBefore`)
+4. `agent.start()` — spawn a fresh subprocess with the new cwd
+5. Renderer: clear chat panel, clear DAG, clear Results tab, hide parameter form if showing — reset all UI to empty
+6. Extension's `session_start` hook fires in the new cwd:
+   - Check for any existing `*-notebook.md` in the cwd
+   - If found: parse it back into `currentPlan` (title, content, steps, approvalState, parameters). Emit `setWidget("plan", ...)`, `setWidget("steps", ...)`, `setWidget("parameters", ...)` to repopulate the UI. **Do not send the welcome message** — the plan IS the context
+   - If not found: fresh session, normal welcome
+7. Main process: push the new cwd to the top of `recent-analyses.json`
+
+**Important clarification:** all three entry points (Open Analysis Directory, Open Recent, session picker) operate on the **current window only**. To work on a new analysis without disturbing the current session, the user must first open a **New Session Window** (⇧⌘N), then pick the directory in the fresh window.
+
+**Fixes a pre-existing bug:** today `File → Open Analysis Directory` only updates the cwd variable and sends a text message — the agent subprocess keeps running in the OLD cwd, so subsequent tool calls execute in the wrong directory. The new flow restarts the agent, which is the correct behavior.
+
+#### Concurrent execution safeguards
+
+- **Conda env name collisions**: namespace the env name with `currentPlan.id` (already a uuid slice) → `gxy3-<planId>-variant-calling`. Different sessions → different ids → no collision.
+- **Pi.dev session files**: already isolated per-cwd via `--continue` picking the latest in the cwd.
+- **Notebook files**: already per-cwd.
+
+#### Files to modify
+
+| Path | Action |
+|---|---|
+| `app/src/main/main.ts` | Per-window state map; register IPC once; "New Session Window" + "Open Recent" menu items; recent-analyses persistence |
+| `app/src/main/ipc-handlers.ts` | Refactor every handler to look up AgentManager by `event.sender`; add `analyses:list-recent`, `analyses:open`, `analyses:clear-recent`, `window:new-session` |
+| `app/src/preload/preload.ts` | Expose `listRecentAnalyses()`, `openAnalysisDir(path)`, `newSessionWindow()` |
+| `app/src/renderer/index.html` | Session picker modal markup (reuse `.modal-overlay` / `.modal` classes from Preferences) |
+| `app/src/renderer/styles.css` | Minor additions for the session picker list items |
+| `app/src/renderer/app.ts` | On first window load, check `listRecentAnalyses()`; if non-empty, show picker; wire Cancel / Continue handlers |
+| `extensions/gxy3/index.ts` | Namespace conda env with `currentPlan.id`; parse existing notebook in new cwd on `session_start` and re-emit UI widgets; emit `notebook_updated` status after `saveNotebook()` |
+
+#### Test
+
+1. **Clean slate**: remove `~/.gxy3/recent-analyses.json` → launch gxy3 → no picker, default greeting. Ask for a plan → notebook saved → persistence file created
+2. **Relaunch**: quit + launch → session picker shows the recent analysis → click Continue → cwd switches, plan re-hydrates, chat stays empty
+3. **Recent menu**: File → Open Recent → submenu lists analyses with relative timestamps
+4. **New session window** (⇧⌘N): second window opens independently
+5. **Parallel execution**: start a long install in window 1, start an analysis in window 2 → both work
+6. **Close window**: close window 1 while window 2 is running → window 2 keeps going; close window 2 → app quits
+
+#### What we're NOT doing
+
+- Sidebar chat-list UI in the same window
+- Mid-execution switches / pausing processes
+- Rename / delete / duplicate actions on recent entries (can add later)
+- Cross-window sync
 
 ## References
 

@@ -303,7 +303,6 @@ function buildGraph(steps: Step[]): { nodes: Node[]; edges: Edge[] } {
           source: dep,
           target: step.id,
           type: "smoothstep",
-          pathOptions: { borderRadius: 16, offset: 20 },
           animated: sourceStep.status === "in_progress",
           style: { stroke: edgeColor, strokeWidth: 2 },
         } satisfies Edge;

@@ -1052,6 +1052,30 @@ html, body {
   color: #fff;
 }
 
+/* Busy state — used on any .plan-btn when a request is in flight */
+.plan-btn.busy,
+.plan-btn:disabled {
+  cursor: wait;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Parameter Form (Phase 4) ─────────────────────────────────────────────── */
 
 .plan-params-view {
@@ -1633,6 +1657,26 @@ html, body {
 }
 
 .result-markdown pre code { background: transparent; padding: 0; }
+
+.result-markdown ul,
+.result-markdown ol {
+  margin: 6px 0;
+  padding-left: 24px;
+}
+
+.result-markdown li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+
+.result-markdown ul ul,
+.result-markdown ul ol,
+.result-markdown ol ul,
+.result-markdown ol ol {
+  margin: 2px 0;
+}
+
+.result-markdown strong { color: var(--text-bright); }
 
 .result-table {
   width: 100%;

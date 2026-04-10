@@ -515,6 +515,9 @@ window.gxy3.onAgentEvent((event) => {
       sendBtn.classList.remove("hidden");
       abortBtn.classList.add("hidden");
       chat.finishAssistantMessage();
+      // Safety: clear any stuck button busy states if the turn ends without the
+      // expected completion event arriving
+      clearButtonBusy(reviewParamsBtn as HTMLButtonElement);
       break;
 
     case "error": {
@@ -575,9 +578,12 @@ window.gxy3.onUiRequest((request) => {
         console.log("[gxy3-ui] parsed spec:", spec.title, spec.groups?.length, "groups");
         artifacts.showParameters(spec);
         switchTab("plan");
+        clearButtonBusy(reviewParamsBtn as HTMLButtonElement);
+        shell.append(`  ✓ Parameter form ready (${spec.groups?.length ?? 0} groups)`, "tool-end");
         console.log("[gxy3-ui] showParameters complete");
       } catch (err) {
         console.error("[gxy3-ui] parameters parse/render error:", err);
+        clearButtonBusy(reviewParamsBtn as HTMLButtonElement);
       }
     }
   }
@@ -672,7 +678,14 @@ reviewParamsBtn.addEventListener("click", () => {
   const text = artifacts.getPlanText();
   if (!text) return;
 
+  // Visual feedback: spinner + disabled button until the parameter form arrives
+  setButtonBusy(reviewParamsBtn as HTMLButtonElement, "Analyzing…");
   chat.addUserMessage("Review parameters");
+  chat.showThinking();
+  statusBadge.textContent = "analyzing parameters…";
+  statusBadge.className = "status-badge thinking";
+  shell.append("▸ Analyzing plan for critical parameters…", "info");
+
   window.gxy3.prompt(
     `The user clicked "Review parameters". Analyze every tool in the current plan, ` +
     `identify the CRITICAL biological parameters (hide thread counts, paths, flags, verbose), ` +
@@ -682,6 +695,24 @@ reviewParamsBtn.addEventListener("click", () => {
     `Plan:\n${text}`
   );
 });
+
+/** Put a button into a "busy" state with a spinner and disabled interaction. */
+function setButtonBusy(btn: HTMLButtonElement, label: string): void {
+  btn.dataset.originalText = btn.textContent || "";
+  btn.disabled = true;
+  btn.classList.add("busy");
+  btn.innerHTML = `<span class="btn-spinner"></span>${label}`;
+}
+
+/** Restore a button from its busy state. */
+function clearButtonBusy(btn: HTMLButtonElement): void {
+  if (btn.dataset.originalText !== undefined) {
+    btn.textContent = btn.dataset.originalText;
+    delete btn.dataset.originalText;
+  }
+  btn.disabled = false;
+  btn.classList.remove("busy");
+}
 
 executePlanBtn.addEventListener("click", () => {
   const text = artifacts.getPlanText();
@@ -930,6 +961,33 @@ function feedShell(event: Record<string, unknown>): void {
   const type = event.type as string;
 
   switch (type) {
+    case "agent_start": {
+      shell.append("─── agent turn start ───", "info");
+      break;
+    }
+    case "turn_start": {
+      // Some models do multiple "turns" per agent run (thinking, then tools, then text)
+      // Skip these to reduce noise; we already have agent_start
+      break;
+    }
+    case "message_start": {
+      const msg = event.message as { role?: string; model?: string } | undefined;
+      if (msg?.role === "assistant" && msg.model) {
+        shell.append(`  thinking… (${msg.model})`, "info");
+      }
+      break;
+    }
+    case "message_update": {
+      // Show when the agent starts producing visible text / a tool call
+      const ame = event.assistantMessageEvent as { type?: string; delta?: string } | undefined;
+      if (!ame) break;
+      if (ame.type === "text_start") {
+        shell.append("  ▸ writing response…", "info");
+      } else if (ame.type === "toolcall_start") {
+        shell.append("  ▸ preparing tool call…", "info");
+      }
+      break;
+    }
     case "tool_execution_start": {
       const name = (event.toolName as string) || "tool";
       const args = event.args as Record<string, unknown> | undefined;

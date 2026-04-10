@@ -17,6 +17,7 @@ export interface Gxy3API {
   abort(): Promise<void>;
   newSession(): Promise<{ cancelled: boolean }>;
   getState(): Promise<unknown>;
+  getCwd(): Promise<string>;
   respondToUiRequest(id: string, response: Record<string, unknown>): void;
   restartAgent(): Promise<void>;
   selectDirectory(): Promise<string | null>;
@@ -32,6 +33,7 @@ const api: Gxy3API = {
   abort: () => ipcRenderer.invoke("agent:abort"),
   newSession: () => ipcRenderer.invoke("agent:new-session"),
   getState: () => ipcRenderer.invoke("agent:get-state"),
+  getCwd: () => ipcRenderer.invoke("agent:get-cwd"),
 
   respondToUiRequest: (id, response) => {
     ipcRenderer.send("agent:ui-response", {

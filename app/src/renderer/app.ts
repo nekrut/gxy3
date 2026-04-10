@@ -16,11 +16,35 @@ const sendBtn = document.getElementById("send-btn")!;
 const abortBtn = document.getElementById("abort-btn")!;
 const statusBadge = document.getElementById("agent-status")!;
 
+const cwdPathEl = document.getElementById("cwd-path")!;
+const cwdChangeBtn = document.getElementById("cwd-change")!;
+
 const chat = new ChatPanel(messagesEl);
 const artifacts = new ArtifactPanel();
 const stepGraph = new StepGraph(document.getElementById("tab-steps")!);
 
 let streaming = false;
+
+// ── CWD Display ──────────────────────────────────────────────────────────────
+
+async function refreshCwd(): Promise<void> {
+  try {
+    const cwd = await window.gxy3.getCwd();
+    cwdPathEl.textContent = cwd;
+    cwdPathEl.title = cwd;
+  } catch { /* getCwd not available yet */ }
+}
+
+cwdChangeBtn.addEventListener("click", async () => {
+  const dir = await window.gxy3.selectDirectory();
+  if (dir) {
+    cwdPathEl.textContent = dir;
+    cwdPathEl.title = dir;
+    window.gxy3.prompt(`[system] Analysis directory changed to: ${dir}`);
+  }
+});
+
+refreshCwd();
 
 // ── Chat Input ────────────────────────────────────────────────────────────────
 
@@ -29,6 +53,9 @@ function submit(): void {
   if (!text || streaming) return;
 
   chat.addUserMessage(text);
+  chat.showThinking();
+  statusBadge.textContent = "thinking...";
+  statusBadge.className = "status-badge thinking";
   window.gxy3.prompt(text);
   inputEl.value = "";
   inputEl.style.height = "auto";
@@ -69,7 +96,7 @@ window.gxy3.onAgentEvent((event) => {
       streaming = true;
       sendBtn.classList.add("hidden");
       abortBtn.classList.remove("hidden");
-      chat.startAssistantMessage();
+      // Don't hide thinking yet — wait for actual text content
       break;
 
     case "message_update": {
@@ -80,13 +107,17 @@ window.gxy3.onAgentEvent((event) => {
       const ameType = ame.type as string;
 
       if (ameType === "text_start") {
+        chat.hideThinking();
+        statusBadge.textContent = "responding...";
+        statusBadge.className = "status-badge running";
         if (!streaming) {
           streaming = true;
           sendBtn.classList.add("hidden");
           abortBtn.classList.remove("hidden");
-          chat.startAssistantMessage();
         }
+        chat.startAssistantMessage();
       } else if (ameType === "text_delta") {
+        chat.hideThinking();
         if (!streaming) {
           streaming = true;
           sendBtn.classList.add("hidden");
@@ -107,9 +138,12 @@ window.gxy3.onAgentEvent((event) => {
       break;
 
     case "tool_start": {
+      chat.hideThinking();
       const name = (event as { tool?: string }).tool || "tool";
       const id = (event as { id?: string }).id || name;
       chat.addToolCard(id, name);
+      statusBadge.textContent = `running: ${name}`;
+      statusBadge.className = "status-badge running";
       break;
     }
 
@@ -122,7 +156,10 @@ window.gxy3.onAgentEvent((event) => {
     }
 
     case "agent_end":
+      chat.hideThinking();
       streaming = false;
+      statusBadge.textContent = "Ready";
+      statusBadge.className = "status-badge";
       sendBtn.classList.remove("hidden");
       abortBtn.classList.add("hidden");
       chat.finishAssistantMessage();
@@ -130,8 +167,11 @@ window.gxy3.onAgentEvent((event) => {
 
     case "error": {
       const msg = (event as { message?: string }).message || "Unknown error";
+      chat.hideThinking();
       chat.addErrorMessage(msg);
       streaming = false;
+      statusBadge.textContent = "error";
+      statusBadge.className = "status-badge error";
       sendBtn.classList.remove("hidden");
       abortBtn.classList.add("hidden");
       break;
@@ -158,10 +198,17 @@ window.gxy3.onUiRequest((request) => {
       try {
         const steps = JSON.parse(lines[0]);
         stepGraph.render(steps);
-        // Switch to steps tab if a step is in progress
         if (steps.some((s: { status: string }) => s.status === "in_progress")) {
           switchTab("steps");
         }
+      } catch { /* ignore parse errors */ }
+    }
+
+    if (key === "results" && lines) {
+      try {
+        const block = JSON.parse(lines[0]);
+        artifacts.addResultBlock(block);
+        switchTab("results");
       } catch { /* ignore parse errors */ }
     }
   }
@@ -235,6 +282,7 @@ executePlanBtn.addEventListener("click", () => {
   const text = artifacts.getPlanText();
   if (!text) return;
 
+  artifacts.clearResults();
   chat.addUserMessage("Execute the plan");
 
   // Send the current plan content (may have been edited in raw mode) + execute command

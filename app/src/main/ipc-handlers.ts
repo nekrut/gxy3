@@ -49,4 +49,8 @@ export function registerIpcHandlers(agent: AgentManager): void {
     }
     return dir;
   });
+
+  ipcMain.handle("agent:get-cwd", () => {
+    return agent.getCwd();
+  });
 }

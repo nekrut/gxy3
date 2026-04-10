@@ -6,6 +6,7 @@ export class ChatPanel {
   private currentText = "";
   private toolCards = new Map<string, HTMLElement>();
   private scrollLocked = true;
+  private thinkingEl: HTMLElement | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -22,6 +23,23 @@ export class ChatPanel {
     el.textContent = text;
     this.container.appendChild(el);
     this.scrollToBottom();
+  }
+
+  showThinking(): void {
+    this.hideThinking();
+    const el = document.createElement("div");
+    el.className = "message assistant thinking-indicator";
+    el.innerHTML = '<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> thinking';
+    this.thinkingEl = el;
+    this.container.appendChild(el);
+    this.scrollToBottom();
+  }
+
+  hideThinking(): void {
+    if (this.thinkingEl) {
+      this.thinkingEl.remove();
+      this.thinkingEl = null;
+    }
   }
 
   startAssistantMessage(): void {

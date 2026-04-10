@@ -234,13 +234,66 @@ For the prototype: the agent reads `/media/anton/data/git/S_aureus/hybrid_assemb
 - **Test**: Ask "plan an assembly for S. aureus", see plan + DAG in artifacts
 
 ### Phase 3: Local Execution
-- `run_command` tool with node-pty
-- `install_tools` tool (conda/mamba/containers — agent decides)
-- Process management (parallel jobs, kill/cancel)
-- Step graph updates in real-time during execution
-- Result rendering (tables, images, text)
-- PDF reading (for the paper-reading part of the prototype)
-- **Test**: Execute a plan step locally, see progress in DAG, see results
+
+#### 3a: Analysis directory setup
+When the user starts an analysis (clicks Execute or says "go ahead"), the system prompts for a working directory before anything runs. All execution, outputs, and artifacts live inside this directory.
+
+- On plan approval, show a **directory picker dialog** (default: `~/.gxy3/analyses/<plan-title-slug>/`)
+- Agent cwd switches to chosen directory; agent subprocess restarts with new cwd
+- The notebook file, all command outputs, and result files are written here
+- Directory path shown in a status bar element so user always knows where they are
+- If user already set a directory via File > Open Analysis Directory, skip the prompt
+
+Implementation:
+- Add IPC call `agent:set-analysis-dir` that picks dir + restarts agent with new cwd
+- Extension's `display_plan` emits a `ui:confirm-directory` request before execution begins
+- Renderer shows the dialog, sends chosen path back via `agent:ui-response`
+
+#### 3b: Tool installation via bioconda
+The agent uses **conda/mamba with bioconda channel** as the default method for installing bioinformatics tools. Each analysis gets its own conda environment.
+
+- `install_tools` tool: takes a list of tool names, creates/reuses a conda env named after the analysis (e.g., `gxy3-mrsa-align`), installs from bioconda+conda-forge
+- Agent always runs `install_tools` before first execution step; plan should include an install step
+- Uses `mamba` if available, falls back to `conda`
+- The env is activated before every `run_command` call (prepend `conda run -n <env>` or source activate)
+- System prompt instructs agent to prefer bioconda packages and include install steps in plans
+
+Implementation:
+- New tool `install_tools` in extension: params `{tools: string[], envName?: string}`
+- Runs `mamba create -n <env> -c bioconda -c conda-forge <tools> -y` (or conda fallback)
+- Stores env name in plan state so `run_command` can reference it
+- `run_command` tool: params `{command: string, background?: boolean}`
+- Wraps command with `conda run -n <env> --no-banner` if env exists
+- Uses `child_process.spawn` with shell (not node-pty for v1 — simpler)
+- Streams stdout/stderr back via `ctx.ui.setWidget("steps", ...)` updates
+- Process management: track PIDs, support `cancel_command` tool
+
+#### 3c: Result rendering in Results tab
+When steps complete, the agent sends results (tables, images, text, files) to the Results tab. Results accumulate as the analysis progresses.
+
+- Extension emits results via `ctx.ui.setWidget("results", lines)` where lines contain typed result blocks
+- Result types:
+  - **text/markdown**: rendered via `marked` (reports, summaries)
+  - **table**: JSON `{type:"table", headers:[], rows:[[]]}` → rendered as styled HTML table
+  - **image**: `{type:"image", path:"/abs/path.png", caption:"..."}` → rendered as `<img>` with file:// URL
+  - **file**: `{type:"file", path:"...", label:"..."}` → clickable link that opens in system viewer
+- Results tab auto-switches to visible when new results arrive
+- Each result block tagged with the step name that produced it
+- `clearResults()` on new analysis start
+
+Implementation:
+- Extend `artifact-panel.ts` `addResult()` to parse typed JSON blocks
+- Add result block renderer: switch on type, produce HTML
+- Extension adds `report_result` tool: agent calls it per step with structured output
+- Wire `setWidget("results", ...)` in app.ts `onUiRequest` handler → parse + render
+
+#### 3d: Supporting pieces
+- `run_command` tool with `child_process.spawn` (shell mode, streams output)
+- `read_pdf` tool: extract text from PDF for the agent to analyze papers
+- Real-time step graph updates during execution (already works via `update_step`)
+- Process management: track running processes, `cancel_command` tool for kill/cancel
+
+- **Test**: Execute a plan that installs tools via bioconda, runs commands, produces results. See conda env creation, DAG progress updates, and results rendered in Results tab.
 
 ### Phase 4: Galaxy Bridge
 - MCP bridge to galaxy-mcp subprocess

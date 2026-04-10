@@ -25,13 +25,23 @@ export class AgentManager {
   private pendingResponses = new Map<string, PendingResponse>();
   private idCounter = 0;
   private cwd: string;
+  private hasStartedBefore = false;  // → use --continue on restart to preserve chat history
 
   constructor(window: BrowserWindow, cwd: string) {
     this.window = window;
     this.cwd = cwd;
   }
 
+  /** Reset session continuity (e.g. when switching to a new analysis directory). */
+  resetSession(): void {
+    this.hasStartedBefore = false;
+  }
+
   setCwd(cwd: string): void {
+    if (cwd !== this.cwd) {
+      // New analysis directory → fresh session, no --continue
+      this.hasStartedBefore = false;
+    }
     this.cwd = cwd;
     log("cwd set to", cwd);
   }
@@ -44,10 +54,19 @@ export class AgentManager {
     if (this.process) this.stop();
     this.stderr = "";
 
-    log("starting agent", { bin: GXY3_BIN, cwd: this.cwd });
+    // On restart (model switch, save preferences, etc.), pass --continue to
+    // resume the previous session and preserve chat history. First start of a
+    // new cwd/session uses no flag → fresh session.
+    const args = [GXY3_BIN, "--mode", "rpc"];
+    if (this.hasStartedBefore) {
+      args.push("--continue");
+    }
+    this.hasStartedBefore = true;
+
+    log("starting agent", { bin: GXY3_BIN, cwd: this.cwd, continue: args.includes("--continue") });
 
     try {
-      this.process = spawn("node", [GXY3_BIN, "--mode", "rpc"], {
+      this.process = spawn("node", args, {
         stdio: ["pipe", "pipe", "pipe"],
         cwd: this.cwd,
         env: { ...process.env },
@@ -74,26 +93,43 @@ export class AgentManager {
       log("stderr:", text.trimEnd());
     });
 
-    this.process.on("exit", (code, signal) => {
-      log("agent exited, code:", code, "signal:", signal);
-      this.process = null;
-      if (code !== 0 && code !== null) {
-        this.setStatus("error", `Agent exited with code ${code}`);
+    // Capture the spawned process so the exit handler doesn't clobber a newer one
+    // (race: stop() spawns a new process, then the OLD process's exit fires later
+    // and wipes this.process to null even though the new one is alive).
+    const spawnedProcess = this.process;
+
+    spawnedProcess.on("exit", (code, signal) => {
+      log("agent exited, code:", code, "signal:", signal, "pid:", spawnedProcess.pid);
+      // Only clear our reference if it's still pointing at THIS process
+      if (this.process === spawnedProcess) {
+        this.process = null;
+        if (code !== 0 && code !== null) {
+          this.setStatus("error", `Agent exited with code ${code}`);
+        } else {
+          this.setStatus("stopped");
+        }
       } else {
-        this.setStatus("stopped");
+        log("(stale exit — newer agent already running, ignoring)");
       }
     });
 
-    this.process.on("error", (err) => {
-      log("agent process error:", err.message);
-      this.process = null;
-      this.setStatus("error", err.message);
+    spawnedProcess.on("error", (err) => {
+      log("agent process error:", err.message, "pid:", spawnedProcess.pid);
+      if (this.process === spawnedProcess) {
+        this.process = null;
+        this.setStatus("error", err.message);
+      }
     });
   }
 
   stop(): void {
     if (this.process) {
       log("stopping agent, pid:", this.process.pid);
+      // Detach all listeners so any delayed exit/error events from THIS process
+      // can't fire after start() spawns a replacement.
+      this.process.removeAllListeners();
+      this.process.stdout?.removeAllListeners();
+      this.process.stderr?.removeAllListeners();
       this.process.kill("SIGTERM");
       this.process = null;
     }

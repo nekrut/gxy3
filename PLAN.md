@@ -444,6 +444,68 @@ Agent-driven git operations. No new Preferences UI — keep settings simple.
 - **Test**: After running an analysis, say "push to github" — agent pushes to a new
   or existing repo, reports the URL in chat
 
+### UI refresh: Step graph → React Flow
+
+The current step DAG (`app/src/renderer/artifacts/step-graph.ts`, ~252 lines of hand-rolled SVG + DOM) is hard to look at: nodes overlap with parallel siblings, SVG connectors don't always reach the right anchors, and in-place expand causes visible layout jitter. Replace it with **React Flow** (`@xyflow/react`).
+
+**Architecture: React island in a vanilla TS app.** The renderer stays vanilla TypeScript except for the Steps tab, which mounts a single React root via `createRoot()`. The new file `step-graph-react.tsx` exports a class `StepGraph` with the **same interface** (`new StepGraph(container)`, `render(steps)`) so `app.ts` only needs a one-line import path change. The extension and step data shape are unchanged.
+
+**Layout direction**: top → bottom (vertical), matching current style (user choice).
+**Node detail**: click → side panel slides in from the right; graph area shrinks. No layout reflow on expand/collapse (user choice — cleaner than inline expand).
+
+**Dependencies to add** (`app/package.json`):
+- `react@^18`, `react-dom@^18`
+- `@xyflow/react@^12` (React Flow core)
+- `@dagrejs/dagre@^1` (vertical DAG layout)
+- Dev: `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`
+
+Bundle impact: ~150 KB gzipped — fine for an Electron desktop app.
+
+**Build config changes:**
+- `app/vite.renderer.config.ts` — add `react()` plugin
+- `app/tsconfig.json` — add `"jsx": "react-jsx"`
+
+**Component design** (`step-graph-react.tsx`):
+- Class `StepGraph` wraps a React root, exposes `render(steps: Step[])` with the existing interface
+- Inner React component:
+  - State: `steps`, `selectedId` (which node is showing detail)
+  - Computes nodes/edges via `useMemo` from steps
+  - Custom `StepNode` component (status icon, title, description, optional result badge)
+  - Smooth-step edges colored by source-step status; animated when source is `in_progress`
+  - `<ReactFlow>` configured: `fitView`, no draggable nodes, no manual connections, controls visible, attribution hidden
+- `StepDetailPanel` slides in when a node is clicked, shows description / explanation / command (in monospace block) / result; close button to dismiss
+- Layout via dagre `rankdir: "TB"`, fixed node width (280px) so spacing is predictable
+
+**CSS changes** (`app/src/renderer/styles.css`):
+- Remove `.dag-*`, `.step-dag`, `.dag-row` rules (~190 lines, lines ~1122–1309)
+- Add `.sg-*` rules (~120 lines): node, status variants, indicator, content, result badge, side panel, command pre block
+- Reuse existing palette vars (`--state-ok-bg`, `--state-running-bg`, `--state-error-bg`, etc.)
+- In-progress nodes get a pulsing box-shadow animation
+
+**Files modified:**
+
+| Path | Action |
+|---|---|
+| `app/package.json` | Add React + React Flow + dagre + plugin-react |
+| `app/vite.renderer.config.ts` | Add `react()` plugin |
+| `app/tsconfig.json` | Add `"jsx": "react-jsx"` |
+| `app/src/renderer/artifacts/step-graph-react.tsx` | **NEW** — class wrapper, React component, custom node, side panel, dagre layout |
+| `app/src/renderer/artifacts/step-graph.ts` | **DELETE** |
+| `app/src/renderer/app.ts` | One-line import path change |
+| `app/src/renderer/styles.css` | Remove `.dag-*` rules; add `.sg-*` rules |
+
+**Verification:**
+1. `cd app && npm install` — pulls deps
+2. `npx tsc --noEmit` — typechecks cleanly
+3. `node dev.mjs` — app starts, no JSX errors in DevTools console
+4. Ask agent: "Plan an S. aureus assembly with autocycler" → plan with 6+ steps appears
+5. Steps tab → React Flow renders top-to-bottom DAG with smooth-step edges
+6. Status colors: pending=grey, in_progress=orange + pulse + animated edge, completed=green, failed=red
+7. Click a node → side panel slides in with description / command / result / explanation
+8. Click again → panel closes
+9. Pan/zoom with mouse; Controls "fit view" re-frames
+10. Trigger an update from the agent (test run) — DAG re-renders without losing pan/zoom inappropriately
+
 ## References
 
 - `/media/anton/data/git/pi-galaxy-analyst/` — patterns for extension architecture, tools, notebook, Electron shell
@@ -452,3 +514,5 @@ Agent-driven git operations. No new Preferences UI — keep settings simple.
 - `/media/anton/data/git/galaxy-skills/` — knowledge base for Galaxy development
 - `/media/anton/data/git/galaxy-brain/` — research vault
 - `/media/anton/data/git/galaxy/` — Galaxy platform codebase
+- React Flow docs: https://reactflow.dev/learn — built-in node types, layout via dagre
+- Dagre layout recipe for React Flow: https://reactflow.dev/learn/layouting/layouting

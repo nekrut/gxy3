@@ -23,6 +23,7 @@ export interface Gxy3API {
   saveConfig(config: Record<string, unknown>): Promise<{ success: boolean; error?: string }>;
   respondToUiRequest(id: string, response: Record<string, unknown>): void;
   restartAgent(): Promise<void>;
+  resetSession(): Promise<void>;
   selectDirectory(): Promise<string | null>;
   browseDirectory(): Promise<string | null>;
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;
@@ -59,6 +60,7 @@ const api: Gxy3API = {
   },
 
   restartAgent: () => ipcRenderer.invoke("agent:restart"),
+  resetSession: () => ipcRenderer.invoke("agent:reset-session"),
   selectDirectory: () => ipcRenderer.invoke("dialog:select-directory"),
   browseDirectory: () => ipcRenderer.invoke("dialog:browse-directory"),
 

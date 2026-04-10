@@ -39,6 +39,13 @@ export function registerIpcHandlers(agent: AgentManager): void {
     agent.start();
   });
 
+  ipcMain.handle("agent:reset-session", async () => {
+    log("reset session — fresh start, no --continue");
+    agent.stop();
+    agent.resetSession();
+    agent.start();
+  });
+
   ipcMain.handle("dialog:browse-directory", async () => {
     const result = await dialog.showOpenDialog({
       title: "Choose directory",

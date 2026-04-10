@@ -29,6 +29,17 @@
         </div>
       </div>
       <div id="messages"></div>
+
+      <!-- Agent shell — collapsible activity log at the bottom of the chat pane -->
+      <div id="agent-shell" class="hidden">
+        <div id="agent-shell-header">
+          <span>Agent shell</span>
+          <button id="agent-shell-clear" title="Clear">clear</button>
+          <button id="agent-shell-close" title="Hide">×</button>
+        </div>
+        <div id="agent-shell-body"></div>
+      </div>
+
       <div id="input-area">
         <textarea
           id="input"
@@ -47,7 +58,8 @@
         </button>
       </div>
       <div id="input-hint">
-        Tip: type <code>/help</code> to see slash commands. Try <code>/model sonnet</code> to switch LLM.
+        <span>Tip: <code>/help</code> for commands · <code>/model sonnet</code> to switch LLM · <code>/new</code> for a fresh session</span>
+        <button id="agent-shell-toggle" title="Toggle agent shell">▸ shell</button>
       </div>
     </div>
 
@@ -118,6 +130,7 @@
               <option value="mistral">Mistral</option>
               <option value="groq">Groq</option>
               <option value="xai">xAI</option>
+              <option value="ollama">Ollama (local)</option>
             </select>
           </div>
           <div class="prefs-row">

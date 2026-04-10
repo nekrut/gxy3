@@ -25,6 +25,15 @@ export class ChatPanel {
     this.scrollToBottom();
   }
 
+  /** Wipe all chat messages and reset internal state. */
+  clear(): void {
+    this.container.innerHTML = "";
+    this.currentMessage = null;
+    this.currentText = "";
+    this.toolCards.clear();
+    this.thinkingEl = null;
+  }
+
   showThinking(): void {
     this.hideThinking();
     const el = document.createElement("div");

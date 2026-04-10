@@ -1,6 +1,7 @@
 import { ChatPanel } from "./chat/chat-panel.js";
+import { ShellPanel } from "./chat/shell-panel.js";
 import { ArtifactPanel } from "./artifacts/artifact-panel.js";
-import { StepGraph } from "./artifacts/step-graph.js";
+import { StepGraph } from "./artifacts/step-graph-react.js";
 
 declare global {
   interface Window {
@@ -26,6 +27,7 @@ const modelIndicatorNameEl = document.getElementById("model-indicator-name")!;
 const chat = new ChatPanel(messagesEl);
 const artifacts = new ArtifactPanel();
 const stepGraph = new StepGraph(document.getElementById("tab-steps")!);
+const shell = new ShellPanel(document.getElementById("agent-shell-body")!);
 
 let streaming = false;
 
@@ -49,6 +51,9 @@ const PRICING: Record<string, { in: number; out: number; cacheRead?: number; cac
   // Google
   "gemini-2.5-pro":       { in: 1.25, out: 10 },
   "gemini-2.5-flash":     { in: 0.15, out: 0.6 },
+  // Ollama (local) — free
+  "qwen3-coder:30b":      { in: 0, out: 0 },
+  "qwen3:8b":             { in: 0, out: 0 },
 };
 
 interface Usage {
@@ -132,6 +137,12 @@ function shortModelLabel(model: string): string {
   if (id === "o1-mini") return "o1 mini";
   // Google
   if (id.startsWith("gemini-")) return id.replace("gemini-", "Gemini ").replace(/-/g, " ");
+  // Ollama / local Qwen models — display as "Qwen3-Coder 30B (local)" etc.
+  const qm = id.match(/^qwen(\d+)(-coder)?:(\d+\w*)$/);
+  if (qm) {
+    const family = `Qwen${qm[1]}${qm[2] ? "-Coder" : ""}`;
+    return `${family} ${qm[3].toUpperCase()} (local)`;
+  }
   // Default: return as-is
   return id;
 }
@@ -271,17 +282,41 @@ function handleSlashCommand(text: string): boolean {
     return true;
   }
 
+  if (cmd === "new" || cmd === "reset" || cmd === "clear") {
+    void resetSession();
+    return true;
+  }
+
   if (cmd === "help") {
     chat.addUserMessage(text);
     chat.addErrorMessage(
       "Slash commands:\n" +
-      "  /model <name>   switch LLM model (e.g. /model sonnet)\n" +
+      "  /model <name>   switch LLM model (e.g. /model sonnet, /model qwen3-coder)\n" +
+      "  /new            start a fresh session (clears chat + agent context)\n" +
       "  /help           show this help"
     );
     return true;
   }
 
   return false; // not a recognized slash command — let it through
+}
+
+/** Wipe chat + restart the agent without --continue (fresh Pi.dev session). */
+async function resetSession(): Promise<void> {
+  chat.clear();
+  // Reset usage counters
+  sessionUsage.input = 0;
+  sessionUsage.output = 0;
+  sessionUsage.cacheRead = 0;
+  sessionUsage.cacheWrite = 0;
+  turnUsage.input = 0;
+  turnUsage.output = 0;
+  turnUsage.cacheRead = 0;
+  turnUsage.cacheWrite = 0;
+  renderUsage();
+
+  await window.gxy3.resetSession();
+  chat.addErrorMessage("Started fresh session.");
 }
 
 /** Resolve a model alias across ALL providers and switch + restart agent. */
@@ -390,6 +425,9 @@ window.gxy3.onAgentEvent((event) => {
   if (type === "message_start" || type === "message_update" || type === "message_end" || type === "turn_end") {
     captureUsage(event as Record<string, unknown>);
   }
+
+  // Feed the agent shell with interesting events
+  feedShell(event);
 
   switch (type) {
     case "agent_start":
@@ -504,17 +542,20 @@ window.gxy3.onUiRequest((request) => {
 
     if (key === "plan" && lines) {
       artifacts.setPlanText(lines.join("\n"));
-      // Auto-switch to plan tab
-      switchTab("plan");
+      // First plan: switch to it. Updates: just mark new and let user navigate.
+      if (!hasShownPlanOnce) {
+        switchTab("plan");
+        hasShownPlanOnce = true;
+      } else {
+        markTabNew("plan");
+      }
     }
 
     if (key === "steps" && lines) {
       try {
         const steps = JSON.parse(lines[0]);
         stepGraph.render(steps);
-        if (steps.some((s: { status: string }) => s.status === "in_progress")) {
-          switchTab("steps");
-        }
+        markTabNew("steps");
       } catch { /* ignore parse errors */ }
     }
 
@@ -522,7 +563,7 @@ window.gxy3.onUiRequest((request) => {
       try {
         const block = JSON.parse(lines[0]);
         artifacts.addResultBlock(block);
-        switchTab("results");
+        markTabNew("results");
       } catch { /* ignore parse errors */ }
     }
 
@@ -547,6 +588,7 @@ function switchTab(name: string): void {
   panels.forEach((p) => p.classList.remove("active"));
   document.querySelector(`[data-tab="${name}"]`)?.classList.add("active");
   document.getElementById(`tab-${name}`)?.classList.add("active");
+  clearTabNew(name);
 }
 
 // ── Agent Status ──────────────────────────────────────────────────────────────
@@ -592,6 +634,21 @@ document.addEventListener("mouseup", () => {
 const tabs = document.querySelectorAll<HTMLButtonElement>("#artifact-tabs .tab");
 const panels = document.querySelectorAll<HTMLElement>(".tab-panel");
 
+let hasShownPlanOnce = false;
+
+/** Add a "new content" indicator to a tab if it's not currently active. */
+function markTabNew(name: string): void {
+  const tab = document.querySelector<HTMLElement>(`[data-tab="${name}"]`);
+  if (!tab || tab.classList.contains("active")) return;
+  tab.classList.add("has-new");
+}
+
+/** Clear the new-content indicator on a tab (called when user clicks it). */
+function clearTabNew(name: string): void {
+  const tab = document.querySelector<HTMLElement>(`[data-tab="${name}"]`);
+  tab?.classList.remove("has-new");
+}
+
 tabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     const target = tab.dataset.tab;
@@ -599,6 +656,7 @@ tabs.forEach((tab) => {
     panels.forEach((p) => p.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById(`tab-${target}`)?.classList.add("active");
+    if (target) clearTabNew(target);
   });
 });
 
@@ -734,6 +792,10 @@ const MODELS_BY_PROVIDER: Record<string, ModelChoice[]> = {
   xai: [
     { id: "grok-2-latest", label: "Grok 2" },
   ],
+  ollama: [
+    { id: "qwen3-coder:30b", label: "Qwen3-Coder 30B (local, A5000) — free" },
+    { id: "qwen3:8b",        label: "Qwen3 8B (local, fast) — free" },
+  ],
 };
 
 function populateModels(provider: string, selected?: string): void {
@@ -860,6 +922,121 @@ document.addEventListener("keydown", (e) => {
 window.gxy3.onOpenPreferences(() => {
   openPreferences();
 });
+
+// ── Agent shell event feed ────────────────────────────────────────────────────
+
+/** Extract a short, useful summary from an agent event and append to the shell. */
+function feedShell(event: Record<string, unknown>): void {
+  const type = event.type as string;
+
+  switch (type) {
+    case "tool_execution_start": {
+      const name = (event.toolName as string) || "tool";
+      const args = event.args as Record<string, unknown> | undefined;
+      shell.append(`▸ ${name}(${summarizeArgs(args)})`, "tool-start");
+      break;
+    }
+    case "tool_execution_end": {
+      const name = (event.toolName as string) || "tool";
+      const result = event.result as { content?: { type: string; text: string }[] } | undefined;
+      const text = result?.content?.[0]?.text;
+      if (!text) {
+        shell.append(`  ✓ ${name} done`, "tool-end");
+        break;
+      }
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed.success === false || parsed.exitCode > 0) {
+          const msg = parsed.error || parsed.stderr || parsed.message || "failed";
+          shell.append(`  ✗ ${name}: ${truncate(msg, 200)}`, "tool-error");
+          // Show a few lines of stderr if present
+          if (parsed.stderr && typeof parsed.stderr === "string") {
+            for (const line of parsed.stderr.split("\n").slice(-5)) {
+              if (line.trim()) shell.append(line, "stdout");
+            }
+          }
+        } else {
+          const msg = parsed.message || `exit ${parsed.exitCode ?? 0}`;
+          shell.append(`  ✓ ${name}: ${truncate(msg, 200)}`, "tool-end");
+          // For run_command, show last few stdout lines
+          if (parsed.stdout && typeof parsed.stdout === "string") {
+            const lines = parsed.stdout.trim().split("\n").slice(-3);
+            for (const line of lines) {
+              if (line.trim()) shell.append(line, "stdout");
+            }
+          }
+        }
+      } catch {
+        // Not JSON — show first 200 chars
+        shell.append(`  ✓ ${name}: ${truncate(text, 200)}`, "tool-end");
+      }
+      break;
+    }
+    case "extension_ui_request": {
+      const method = event.method as string;
+      if (method === "setStatus") {
+        const key = event.statusKey as string;
+        const text = event.statusText as string;
+        // Strip ANSI color codes
+        const clean = text?.replace(/\x1b\[[0-9;]*m/g, "");
+        if (key && key !== "ready" && clean) {
+          shell.append(`[${key}] ${clean}`, "status");
+        }
+      }
+      break;
+    }
+    case "error": {
+      const msg = (event.message as string) || "Unknown error";
+      shell.append(`✗ ${msg}`, "tool-error");
+      break;
+    }
+  }
+}
+
+function summarizeArgs(args: Record<string, unknown> | undefined): string {
+  if (!args) return "";
+  // Format args as compact "key=value" pairs, truncating long strings
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(args)) {
+    let s: string;
+    if (Array.isArray(v)) {
+      s = v.length <= 3 ? `[${v.join(", ")}]` : `[${v.length} items]`;
+    } else if (typeof v === "string") {
+      s = `"${truncate(v, 60)}"`;
+    } else if (v === null || v === undefined) {
+      s = String(v);
+    } else if (typeof v === "object") {
+      s = "{...}";
+    } else {
+      s = String(v);
+    }
+    parts.push(`${k}=${s}`);
+  }
+  return truncate(parts.join(", "), 160);
+}
+
+function truncate(s: string, n: number): string {
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1) + "…";
+}
+
+// ── Agent shell toggle ────────────────────────────────────────────────────────
+
+const shellEl = document.getElementById("agent-shell")!;
+const shellToggleBtn = document.getElementById("agent-shell-toggle")!;
+const shellCloseBtn = document.getElementById("agent-shell-close")!;
+const shellClearBtn = document.getElementById("agent-shell-clear")!;
+
+function toggleShell(show?: boolean): void {
+  const willShow = show ?? shellEl.classList.contains("hidden");
+  shellEl.classList.toggle("hidden", !willShow);
+  shellToggleBtn.classList.toggle("active", willShow);
+  shellToggleBtn.textContent = willShow ? "▾ shell" : "▸ shell";
+}
+
+shellToggleBtn.addEventListener("click", () => toggleShell());
+shellCloseBtn.addEventListener("click", () => toggleShell(false));
+shellClearBtn.addEventListener("click", () => shell.clear());
 
 // ── Focus input on load ───────────────────────────────────────────────────────
 inputEl.focus();

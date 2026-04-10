@@ -18,6 +18,7 @@ export interface Gxy3API {
   newSession(): Promise<{ cancelled: boolean }>;
   getState(): Promise<unknown>;
   getCwd(): Promise<string>;
+  openFile(filePath: string): Promise<{ opened: boolean; error?: string }>;
   respondToUiRequest(id: string, response: Record<string, unknown>): void;
   restartAgent(): Promise<void>;
   selectDirectory(): Promise<string | null>;
@@ -34,6 +35,7 @@ const api: Gxy3API = {
   newSession: () => ipcRenderer.invoke("agent:new-session"),
   getState: () => ipcRenderer.invoke("agent:get-state"),
   getCwd: () => ipcRenderer.invoke("agent:get-cwd"),
+  openFile: (filePath) => ipcRenderer.invoke("file:open", filePath),
 
   respondToUiRequest: (id, response) => {
     ipcRenderer.send("agent:ui-response", {

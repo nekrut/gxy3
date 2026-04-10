@@ -1,5 +1,6 @@
-import { ipcMain, dialog } from "electron";
+import { ipcMain, dialog, BrowserWindow, shell } from "electron";
 import type { AgentManager } from "./agent.js";
+import path from "node:path";
 
 function log(...args: unknown[]): void {
   console.log("[ipc]", ...args);
@@ -52,5 +53,25 @@ export function registerIpcHandlers(agent: AgentManager): void {
 
   ipcMain.handle("agent:get-cwd", () => {
     return agent.getCwd();
+  });
+
+  ipcMain.handle("file:open", async (_e, filePath: string) => {
+    log("open file:", filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    // HTML files → new Electron window (so user can view reports)
+    if (ext === ".html" || ext === ".htm") {
+      const win = new BrowserWindow({
+        width: 1200,
+        height: 900,
+        title: path.basename(filePath),
+        webPreferences: { sandbox: true },
+      });
+      await win.loadURL("file://" + filePath);
+      return { opened: true };
+    }
+    // Everything else → system default app
+    const err = await shell.openPath(filePath);
+    if (err) return { opened: false, error: err };
+    return { opened: true };
   });
 }

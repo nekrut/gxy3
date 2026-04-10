@@ -42,6 +42,10 @@ export class ChatPanel {
     }
   }
 
+  hasActiveMessage(): boolean {
+    return this.currentMessage !== null;
+  }
+
   startAssistantMessage(): void {
     this.currentText = "";
     const el = document.createElement("div");
@@ -60,11 +64,11 @@ export class ChatPanel {
   }
 
   finishAssistantMessage(): void {
-    if (!this.currentMessage) return;
-    // Remove cursor, final render
-    this.renderCurrentMessage();
-    const cursor = this.currentMessage.querySelector(".cursor-blink");
-    if (cursor) cursor.remove();
+    if (this.currentMessage) {
+      this.renderCurrentMessage();
+    }
+    // Clean up any stray cursors across the whole container
+    this.container.querySelectorAll(".cursor-blink").forEach(c => c.remove());
     this.currentMessage = null;
     this.currentText = "";
   }

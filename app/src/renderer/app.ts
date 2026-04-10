@@ -18,12 +18,133 @@ const statusBadge = document.getElementById("agent-status")!;
 
 const cwdPathEl = document.getElementById("cwd-path")!;
 const cwdChangeBtn = document.getElementById("cwd-change")!;
+const usageTokensEl = document.getElementById("usage-tokens")!;
+const usageCostEl = document.getElementById("usage-cost")!;
 
 const chat = new ChatPanel(messagesEl);
 const artifacts = new ArtifactPanel();
 const stepGraph = new StepGraph(document.getElementById("tab-steps")!);
 
 let streaming = false;
+
+// ── Usage Tracking ────────────────────────────────────────────────────────────
+
+// Per-1M-token pricing (USD). null = unknown → cost hidden.
+// Update as providers change pricing or add models.
+const PRICING: Record<string, { in: number; out: number; cacheRead?: number; cacheWrite?: number }> = {
+  // Anthropic
+  "claude-opus-4-6":      { in: 15, out: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "claude-opus-4-5":      { in: 15, out: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "claude-sonnet-4-6":    { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-sonnet-4-5":    { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-haiku-4-5":     { in: 1, out: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  // OpenAI
+  "gpt-4o":               { in: 2.5, out: 10, cacheRead: 1.25 },
+  "gpt-4o-mini":          { in: 0.15, out: 0.6, cacheRead: 0.075 },
+  "gpt-4-turbo":          { in: 10, out: 30 },
+  "o1":                   { in: 15, out: 60, cacheRead: 7.5 },
+  "o1-mini":              { in: 3, out: 12, cacheRead: 1.5 },
+  // Google
+  "gemini-2.5-pro":       { in: 1.25, out: 10 },
+  "gemini-2.5-flash":     { in: 0.15, out: 0.6 },
+};
+
+interface Usage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+const sessionUsage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+const turnUsage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+let currentModel: string | null = null;
+
+/** Match a model ID against the pricing table (handles date suffixes). */
+function findPricing(model: string): { in: number; out: number; cacheRead?: number; cacheWrite?: number } | null {
+  // Exact match first
+  if (PRICING[model]) return PRICING[model];
+  // Strip date suffix (e.g. claude-opus-4-6-20250514)
+  const stripped = model.replace(/-\d{8}$/, "");
+  if (PRICING[stripped]) return PRICING[stripped];
+  // Prefix match
+  for (const key of Object.keys(PRICING)) {
+    if (model.startsWith(key)) return PRICING[key];
+  }
+  return null;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return String(n);
+}
+
+function computeCost(u: Usage, model: string | null): number | null {
+  if (!model) return null;
+  const p = findPricing(model);
+  if (!p) return null;
+  const cost =
+    (u.input * p.in) / 1_000_000 +
+    (u.output * p.out) / 1_000_000 +
+    (u.cacheRead * (p.cacheRead ?? p.in)) / 1_000_000 +
+    (u.cacheWrite * (p.cacheWrite ?? p.in)) / 1_000_000;
+  return cost;
+}
+
+function renderUsage(): void {
+  const total = sessionUsage.input + sessionUsage.output + sessionUsage.cacheRead + sessionUsage.cacheWrite;
+  usageTokensEl.textContent = `${formatTokens(total)} tok`;
+  usageTokensEl.title =
+    `Session usage:\n` +
+    `  input: ${sessionUsage.input.toLocaleString()}\n` +
+    `  output: ${sessionUsage.output.toLocaleString()}\n` +
+    `  cache read: ${sessionUsage.cacheRead.toLocaleString()}\n` +
+    `  cache write: ${sessionUsage.cacheWrite.toLocaleString()}` +
+    (currentModel ? `\nmodel: ${currentModel}` : "");
+
+  const cost = computeCost(sessionUsage, currentModel);
+  if (cost !== null) {
+    usageCostEl.textContent = cost < 0.01 ? "<$0.01" : `$${cost.toFixed(2)}`;
+    usageCostEl.classList.remove("hidden");
+  } else {
+    usageCostEl.textContent = "";
+    usageCostEl.classList.add("hidden");
+  }
+}
+
+function captureUsage(event: Record<string, unknown>): void {
+  // message_start carries model info; message updates carry rolling usage
+  const msg = event.message as Record<string, unknown> | undefined;
+  if (!msg) return;
+
+  if (msg.model && typeof msg.model === "string") {
+    currentModel = msg.model;
+  }
+
+  const u = msg.usage as Partial<Usage> | undefined;
+  if (!u) return;
+
+  // turnUsage tracks the in-progress turn's cumulative values
+  turnUsage.input = u.input ?? turnUsage.input;
+  turnUsage.output = u.output ?? turnUsage.output;
+  turnUsage.cacheRead = u.cacheRead ?? turnUsage.cacheRead;
+  turnUsage.cacheWrite = u.cacheWrite ?? turnUsage.cacheWrite;
+}
+
+function commitTurnUsage(): void {
+  sessionUsage.input += turnUsage.input;
+  sessionUsage.output += turnUsage.output;
+  sessionUsage.cacheRead += turnUsage.cacheRead;
+  sessionUsage.cacheWrite += turnUsage.cacheWrite;
+  turnUsage.input = 0;
+  turnUsage.output = 0;
+  turnUsage.cacheRead = 0;
+  turnUsage.cacheWrite = 0;
+  renderUsage();
+}
+
+renderUsage();
 
 // ── CWD Display ──────────────────────────────────────────────────────────────
 
@@ -91,6 +212,11 @@ window.gxy3.onAgentEvent((event) => {
   const type = event.type as string;
   console.log("[gxy3-ui] event:", type, JSON.stringify(event).slice(0, 150));
 
+  // Capture usage from any event that carries a message with usage
+  if (type === "message_start" || type === "message_update" || type === "message_end" || type === "turn_end") {
+    captureUsage(event as Record<string, unknown>);
+  }
+
   switch (type) {
     case "agent_start":
       streaming = true;
@@ -115,13 +241,18 @@ window.gxy3.onAgentEvent((event) => {
           sendBtn.classList.add("hidden");
           abortBtn.classList.remove("hidden");
         }
-        chat.startAssistantMessage();
+        // Only start a new message if there isn't one active
+        if (!chat.hasActiveMessage()) {
+          chat.startAssistantMessage();
+        }
       } else if (ameType === "text_delta") {
         chat.hideThinking();
         if (!streaming) {
           streaming = true;
           sendBtn.classList.add("hidden");
           abortBtn.classList.remove("hidden");
+        }
+        if (!chat.hasActiveMessage()) {
           chat.startAssistantMessage();
         }
         const delta = ame.delta as string;
@@ -132,7 +263,16 @@ window.gxy3.onAgentEvent((event) => {
       break;
     }
 
-    case "message_end":
+    case "message_end": {
+      // Commit per-assistant-message usage to the session total
+      // Each assistant message = one LLM call billed separately
+      const msg = (event as { message?: { role?: string } }).message;
+      if (msg?.role === "assistant") {
+        commitTurnUsage();
+      }
+      break;
+    }
+
     case "turn_end":
       // Turn might not be fully done until agent_end
       break;

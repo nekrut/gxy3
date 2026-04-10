@@ -223,9 +223,7 @@ export class ArtifactPanel {
           link.title = block.path;
           link.addEventListener("click", (e) => {
             e.preventDefault();
-            // Open in system default viewer via shell
-            const { shell } = window.require?.("electron") || {};
-            if (shell) shell.openPath(block.path!);
+            window.gxy3.openFile(block.path!);
           });
           wrapper.appendChild(link);
         }

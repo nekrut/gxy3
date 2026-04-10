@@ -1,12 +1,14 @@
 /**
  * ArtifactPanel manages the right pane: Plan, Steps, Results tabs.
  *
- * Plan has two modes:
+ * Plan has three modes:
  * - Rendered: markdown rendered as HTML (read-only, default)
  * - Raw: editable textarea for direct editing
+ * - Parameters: form view (Phase 4) — replaces plan rendered/raw when active
  */
 
 import { marked } from "marked";
+import { ParameterForm, type ParameterFormSpec } from "./parameter-form.js";
 
 export interface PlanStep {
   id: string;
@@ -35,8 +37,14 @@ export class ArtifactPanel {
   private toolbarEl: HTMLElement;
   private actionsEl: HTMLElement;
 
+  // Phase 4: parameter form view
+  private paramsViewEl: HTMLElement;
+  private paramsFormEl: HTMLElement;
+  private parameterForm: ParameterForm;
+
   private planContent = "";
   private mode: "rendered" | "raw" = "rendered";
+  private paramsActive = false;
 
   constructor() {
     this.planEl = document.getElementById("tab-plan")!;
@@ -47,6 +55,10 @@ export class ArtifactPanel {
     this.rawEl = document.getElementById("plan-raw") as HTMLTextAreaElement;
     this.toolbarEl = document.getElementById("plan-toolbar")!;
     this.actionsEl = document.getElementById("plan-actions")!;
+
+    this.paramsViewEl = document.getElementById("plan-params-view")!;
+    this.paramsFormEl = document.getElementById("plan-params-form")!;
+    this.parameterForm = new ParameterForm(this.paramsFormEl);
 
     this.toolbarEl.querySelectorAll<HTMLButtonElement>(".mode-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -69,11 +81,58 @@ export class ArtifactPanel {
     this.toolbarEl.classList.remove("hidden");
     this.actionsEl.classList.remove("hidden");
 
+    // Exit parameters view if it was showing — new plan supersedes old form
+    if (this.paramsActive) this.hideParameters();
+
     this.render();
   }
 
   getPlanText(): string {
     return this.planContent;
+  }
+
+  // ── Parameter form (Phase 4) ────────────────────────────────────────────────
+
+  /** Show the parameter form, hiding the plan rendered/raw view. */
+  showParameters(spec: ParameterFormSpec): void {
+    this.parameterForm.render(spec);
+    this.paramsActive = true;
+
+    // Hide plan rendered/raw + toolbar + main action buttons
+    this.renderedEl.classList.add("hidden");
+    this.rawEl.classList.add("hidden");
+    this.toolbarEl.classList.add("hidden");
+    this.actionsEl.classList.add("hidden");
+
+    // Show parameter view
+    this.paramsViewEl.classList.remove("hidden");
+  }
+
+  /** Return to the plan view, preserving form values for next show. */
+  hideParameters(): void {
+    this.paramsActive = false;
+    this.paramsViewEl.classList.add("hidden");
+
+    // Restore plan view
+    this.toolbarEl.classList.remove("hidden");
+    this.actionsEl.classList.remove("hidden");
+    this.render();
+  }
+
+  getParameterValues(): Record<string, string | number | boolean> {
+    return this.parameterForm.getValues();
+  }
+
+  isParametersActive(): boolean {
+    return this.paramsActive;
+  }
+
+  hasParameterSpec(): boolean {
+    return this.parameterForm.hasSpec();
+  }
+
+  setParametersDisabled(disabled: boolean): void {
+    this.parameterForm.setDisabled(disabled);
   }
 
   private setMode(mode: "rendered" | "raw"): void {

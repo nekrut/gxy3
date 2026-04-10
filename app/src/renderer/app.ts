@@ -20,6 +20,8 @@ const cwdPathEl = document.getElementById("cwd-path")!;
 const cwdChangeBtn = document.getElementById("cwd-change")!;
 const usageTokensEl = document.getElementById("usage-tokens")!;
 const usageCostEl = document.getElementById("usage-cost")!;
+const modelIndicatorEl = document.getElementById("model-indicator")!;
+const modelIndicatorNameEl = document.getElementById("model-indicator-name")!;
 
 const chat = new ChatPanel(messagesEl);
 const artifacts = new ArtifactPanel();
@@ -113,13 +115,49 @@ function renderUsage(): void {
   }
 }
 
+/** Format a long model id into a short display label, e.g. claude-sonnet-4-6 → "Sonnet 4.6". */
+function shortModelLabel(model: string): string {
+  // Strip date suffix (claude-opus-4-6-20250514 → claude-opus-4-6)
+  const id = model.replace(/-\d{8}$/, "");
+  // Anthropic
+  const cm = id.match(/^claude-(opus|sonnet|haiku)-(\d+(?:-\d+)?)/);
+  if (cm) {
+    const family = cm[1].charAt(0).toUpperCase() + cm[1].slice(1);
+    const ver = cm[2].replace(/-/g, ".");
+    return `${family} ${ver}`;
+  }
+  // OpenAI
+  if (id.startsWith("gpt-")) return id.toUpperCase().replace("GPT-", "GPT-");
+  if (id === "o1") return "o1";
+  if (id === "o1-mini") return "o1 mini";
+  // Google
+  if (id.startsWith("gemini-")) return id.replace("gemini-", "Gemini ").replace(/-/g, " ");
+  // Default: return as-is
+  return id;
+}
+
+function renderModelIndicator(): void {
+  if (currentModel) {
+    modelIndicatorNameEl.textContent = shortModelLabel(currentModel);
+    modelIndicatorEl.title = `Model: ${currentModel}\nClick to change in Preferences`;
+    modelIndicatorEl.classList.remove("hidden");
+  } else {
+    modelIndicatorEl.classList.add("hidden");
+  }
+}
+
+modelIndicatorEl.addEventListener("click", () => {
+  void openPreferences();
+});
+
 function captureUsage(event: Record<string, unknown>): void {
   // message_start carries model info; message updates carry rolling usage
   const msg = event.message as Record<string, unknown> | undefined;
   if (!msg) return;
 
-  if (msg.model && typeof msg.model === "string") {
+  if (msg.model && typeof msg.model === "string" && msg.model !== currentModel) {
     currentModel = msg.model;
+    renderModelIndicator();
   }
 
   const u = msg.usage as Partial<Usage> | undefined;
@@ -145,6 +183,17 @@ function commitTurnUsage(): void {
 }
 
 renderUsage();
+
+// Populate model indicator from config at startup so it shows before the first message
+void (async () => {
+  try {
+    const cfg = await window.gxy3.getConfig() as { llm?: { model?: string } };
+    if (cfg.llm?.model) {
+      currentModel = cfg.llm.model;
+      renderModelIndicator();
+    }
+  } catch { /* getConfig may not be available yet */ }
+})();
 
 // ── CWD Display ──────────────────────────────────────────────────────────────
 
@@ -180,6 +229,15 @@ function submit(): void {
   const text = inputEl.value.trim();
   if (!text || streaming) return;
 
+  // Slash commands — handled locally, no LLM round-trip
+  if (text.startsWith("/")) {
+    if (handleSlashCommand(text)) {
+      inputEl.value = "";
+      inputEl.style.height = "auto";
+      return;
+    }
+  }
+
   chat.addUserMessage(text);
   chat.showThinking();
   statusBadge.textContent = "thinking...";
@@ -187,6 +245,115 @@ function submit(): void {
   window.gxy3.prompt(text);
   inputEl.value = "";
   inputEl.style.height = "auto";
+}
+
+/**
+ * Handle slash commands. Returns true if handled (no need to send to agent).
+ *
+ * Supported:
+ *   /model <name>   — switch LLM model (e.g. /model sonnet, /model claude-opus-4-6)
+ *   /help           — list slash commands
+ */
+function handleSlashCommand(text: string): boolean {
+  const [cmd, ...rest] = text.slice(1).split(/\s+/);
+
+  if (cmd === "model") {
+    const arg = rest.join(" ").trim().toLowerCase();
+    if (!arg) {
+      chat.addUserMessage(text);
+      chat.addErrorMessage(
+        "Usage: /model <name>. Examples: /model sonnet, /model haiku, /model opus, " +
+        "or /model claude-sonnet-4-6 for an exact id."
+      );
+      return true;
+    }
+    void switchModelByAlias(text, arg);
+    return true;
+  }
+
+  if (cmd === "help") {
+    chat.addUserMessage(text);
+    chat.addErrorMessage(
+      "Slash commands:\n" +
+      "  /model <name>   switch LLM model (e.g. /model sonnet)\n" +
+      "  /help           show this help"
+    );
+    return true;
+  }
+
+  return false; // not a recognized slash command — let it through
+}
+
+/** Resolve a model alias across ALL providers and switch + restart agent. */
+async function switchModelByAlias(originalText: string, alias: string): Promise<void> {
+  chat.addUserMessage(originalText);
+
+  const cfg = await window.gxy3.getConfig() as { llm?: { provider?: string } };
+  const currentProvider = cfg.llm?.provider || "anthropic";
+
+  // Search strategy: prefer current provider, then search all providers.
+  // Within each provider: exact id match → id substring → label substring.
+  let chosen: { provider: string; model: ModelChoice } | undefined;
+
+  const search = (p: string): ModelChoice | undefined => {
+    const cat = MODELS_BY_PROVIDER[p] || [];
+    return (
+      cat.find(m => m.id === alias) ||
+      cat.find(m => m.id.toLowerCase().includes(alias)) ||
+      cat.find(m => m.label.toLowerCase().includes(alias))
+    );
+  };
+
+  // 1. Try current provider first (preserves user's existing setup)
+  const inCurrent = search(currentProvider);
+  if (inCurrent) {
+    chosen = { provider: currentProvider, model: inCurrent };
+  } else {
+    // 2. Fall back to searching every provider
+    for (const p of Object.keys(MODELS_BY_PROVIDER)) {
+      if (p === currentProvider) continue;
+      const m = search(p);
+      if (m) { chosen = { provider: p, model: m }; break; }
+    }
+  }
+
+  if (!chosen) {
+    const all = Object.entries(MODELS_BY_PROVIDER)
+      .map(([p, models]) => `  ${p}: ${models.map(m => m.id).join(", ")}`)
+      .join("\n");
+    chat.addErrorMessage(
+      `No model matches "${alias}". Available models:\n${all}`
+    );
+    return;
+  }
+
+  // Save updated config
+  const current = await window.gxy3.getConfig() as Record<string, unknown>;
+  const llm = ((current.llm as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
+
+  const switchingProvider = chosen.provider !== currentProvider;
+  if (switchingProvider) {
+    llm.provider = chosen.provider;
+    // Don't clobber the existing API key — if the user has none for the new provider,
+    // the agent restart will fail with a clear error and they can set it in Preferences.
+  }
+  llm.model = chosen.model.id;
+  current.llm = llm;
+
+  const result = await window.gxy3.saveConfig(current);
+  if (!result.success) {
+    chat.addErrorMessage(`Failed to save config: ${result.error}`);
+    return;
+  }
+
+  if (switchingProvider) {
+    chat.addErrorMessage(
+      `Switched to ${chosen.provider} / ${chosen.model.id}. Agent restarting… ` +
+      `(if you don't have a ${chosen.provider} API key set in Preferences, the agent will fail to start)`
+    );
+  } else {
+    chat.addErrorMessage(`Model switched to ${chosen.model.id}. Agent restarting…`);
+  }
 }
 
 inputEl.addEventListener("keydown", (e) => {
@@ -358,6 +525,20 @@ window.gxy3.onUiRequest((request) => {
         switchTab("results");
       } catch { /* ignore parse errors */ }
     }
+
+    // Phase 4: parameter form — replaces plan view
+    if (key === "parameters" && lines) {
+      console.log("[gxy3-ui] parameters widget received, lines[0] length:", lines[0]?.length);
+      try {
+        const spec = JSON.parse(lines[0]);
+        console.log("[gxy3-ui] parsed spec:", spec.title, spec.groups?.length, "groups");
+        artifacts.showParameters(spec);
+        switchTab("plan");
+        console.log("[gxy3-ui] showParameters complete");
+      } catch (err) {
+        console.error("[gxy3-ui] parameters parse/render error:", err);
+      }
+    }
   }
 });
 
@@ -423,19 +604,87 @@ tabs.forEach((tab) => {
 
 // ── Plan Actions ──────────────────────────────────────────────────────────────
 
+const reviewParamsBtn = document.getElementById("review-params-btn")!;
 const executePlanBtn = document.getElementById("execute-plan-btn")!;
+const paramsBackBtn = document.getElementById("params-back-btn")!;
+const testRunBtn = document.getElementById("test-run-btn")!;
+const executeWithParamsBtn = document.getElementById("execute-with-params-btn")!;
+
+reviewParamsBtn.addEventListener("click", () => {
+  const text = artifacts.getPlanText();
+  if (!text) return;
+
+  chat.addUserMessage("Review parameters");
+  window.gxy3.prompt(
+    `The user clicked "Review parameters". Analyze every tool in the current plan, ` +
+    `identify the CRITICAL biological parameters (hide thread counts, paths, flags, verbose), ` +
+    `and call analyze_plan_parameters with a consolidated form spec grouped by biology concept ` +
+    `(not by tool). Include biologist-friendly help text for every parameter. ` +
+    `Use defaults appropriate for the organism/analysis type. ` +
+    `Plan:\n${text}`
+  );
+});
 
 executePlanBtn.addEventListener("click", () => {
   const text = artifacts.getPlanText();
   if (!text) return;
 
   artifacts.clearResults();
-  chat.addUserMessage("Execute the plan");
+  chat.addUserMessage("Execute anyway");
 
-  // Send the current plan content (may have been edited in raw mode) + execute command
+  // Skip parameter review — run with agent defaults
   window.gxy3.prompt(
-    `The user has approved the following plan and wants you to execute it step by step. ` +
-    `Report progress as you go.\n\nPlan:\n${text}`
+    `The user clicked "Execute anyway" — run the plan with default parameters. ` +
+    `FIRST call reset_plan_steps to clear any stale state. THEN execute step by step ` +
+    `using update_step + run_command. NO chat narration. ` +
+    `Plan:\n${text}`
+  );
+});
+
+paramsBackBtn.addEventListener("click", () => {
+  artifacts.hideParameters();
+});
+
+testRunBtn.addEventListener("click", () => {
+  const values = artifacts.getParameterValues();
+  const text = artifacts.getPlanText();
+
+  artifacts.clearResults();
+  chat.addUserMessage("Test run");
+  artifacts.setParametersDisabled(true);
+
+  window.gxy3.prompt(
+    `The user clicked "Test run (minimal data)". Configured parameters:\n` +
+    `${JSON.stringify(values, null, 2)}\n\n` +
+    `Sequence of calls (in order):\n` +
+    `1. reset_plan_steps  — clear stale state\n` +
+    `2. generate_test_data  — subsample real files if they exist, otherwise synthesize\n` +
+    `3. For each step: update_step(in_progress, with description reflecting test mode) → ` +
+    `run_command → update_step(completed, with result) → report_result\n\n` +
+    `In test mode, update each step's description to reflect the smaller scope ` +
+    `(e.g., 'Downloading 1 test sample' not '270 samples'). ` +
+    `Tag results as 'TEST RUN' in the markdown. ` +
+    `Do NOT call clear_test_mode — leave test mode on so the user can review. ` +
+    `NO chat narration — let the DAG and Results tab show progress.\n\nPlan:\n${text}`
+  );
+});
+
+executeWithParamsBtn.addEventListener("click", () => {
+  const values = artifacts.getParameterValues();
+  const text = artifacts.getPlanText();
+
+  artifacts.clearResults();
+  chat.addUserMessage("Execute with configured parameters");
+  artifacts.setParametersDisabled(true);
+
+  window.gxy3.prompt(
+    `The user clicked "Execute (real data)". Configured parameters:\n` +
+    `${JSON.stringify(values, null, 2)}\n\n` +
+    `Sequence of calls (in order):\n` +
+    `1. If test mode is active, clear_test_mode  — restore real paths\n` +
+    `2. reset_plan_steps  — clear stale state from any previous run\n` +
+    `3. For each step: update_step(in_progress) → run_command → update_step(completed)\n\n` +
+    `NO chat narration — let the DAG and Results tab show progress.\n\nPlan:\n${text}`
   );
 });
 
@@ -448,8 +697,69 @@ const prefsSave = document.getElementById("prefs-save")!;
 const prefsBrowseCwd = document.getElementById("prefs-browse-cwd")!;
 
 const prefsProvider = document.getElementById("prefs-provider") as HTMLSelectElement;
-const prefsModel = document.getElementById("prefs-model") as HTMLInputElement;
+const prefsModel = document.getElementById("prefs-model") as HTMLSelectElement;
 const prefsApiKey = document.getElementById("prefs-api-key") as HTMLInputElement;
+
+// Model catalog by provider — labels include cost guidance
+// (in/out price per 1M tokens). Update when providers add/change models.
+interface ModelChoice { id: string; label: string; }
+const MODELS_BY_PROVIDER: Record<string, ModelChoice[]> = {
+  anthropic: [
+    { id: "claude-sonnet-4-6", label: "Sonnet 4.6 — $3/$15 (recommended)" },
+    { id: "claude-haiku-4-5",  label: "Haiku 4.5 — $1/$5 (cheapest)" },
+    { id: "claude-opus-4-6",   label: "Opus 4.6 — $15/$75 (most capable, expensive)" },
+    { id: "claude-sonnet-4-5", label: "Sonnet 4.5 — $3/$15" },
+    { id: "claude-opus-4-5",   label: "Opus 4.5 — $15/$75" },
+  ],
+  openai: [
+    { id: "gpt-4o-mini", label: "GPT-4o mini — $0.15/$0.60 (cheapest)" },
+    { id: "gpt-4o",      label: "GPT-4o — $2.50/$10" },
+    { id: "gpt-4-turbo", label: "GPT-4 Turbo — $10/$30" },
+    { id: "o1-mini",     label: "o1-mini — $3/$12" },
+    { id: "o1",          label: "o1 — $15/$60" },
+  ],
+  google: [
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash — $0.15/$0.60 (cheapest)" },
+    { id: "gemini-2.5-pro",   label: "Gemini 2.5 Pro — $1.25/$10" },
+  ],
+  mistral: [
+    { id: "mistral-large-latest", label: "Mistral Large" },
+    { id: "mistral-medium-latest", label: "Mistral Medium" },
+    { id: "mistral-small-latest", label: "Mistral Small" },
+  ],
+  groq: [
+    { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B" },
+    { id: "llama-3.1-8b-instant",    label: "Llama 3.1 8B (fast)" },
+  ],
+  xai: [
+    { id: "grok-2-latest", label: "Grok 2" },
+  ],
+};
+
+function populateModels(provider: string, selected?: string): void {
+  prefsModel.innerHTML = "";
+  const models = MODELS_BY_PROVIDER[provider] || [];
+  for (const m of models) {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    opt.textContent = m.label;
+    if (selected && m.id === selected) opt.selected = true;
+    prefsModel.appendChild(opt);
+  }
+  // If saved model isn't in the catalog (custom or older), add it as a free-form entry
+  if (selected && !models.find(m => m.id === selected)) {
+    const opt = document.createElement("option");
+    opt.value = selected;
+    opt.textContent = `${selected} (custom)`;
+    opt.selected = true;
+    prefsModel.appendChild(opt);
+  }
+}
+
+// Repopulate model dropdown when provider changes
+prefsProvider.addEventListener("change", () => {
+  populateModels(prefsProvider.value);
+});
 const prefsGalaxyUrl = document.getElementById("prefs-galaxy-url") as HTMLInputElement;
 const prefsGalaxyKey = document.getElementById("prefs-galaxy-key") as HTMLInputElement;
 const prefsDefaultCwd = document.getElementById("prefs-default-cwd") as HTMLInputElement;
@@ -464,7 +774,7 @@ async function openPreferences(): Promise<void> {
   };
 
   prefsProvider.value = config.llm?.provider || "anthropic";
-  prefsModel.value = config.llm?.model || "";
+  populateModels(prefsProvider.value, config.llm?.model);
   prefsApiKey.value = config.llm?.apiKey || "";
 
   // Galaxy: use active profile
@@ -497,7 +807,7 @@ async function savePreferences(): Promise<void> {
 
   config.llm = {
     provider: prefsProvider.value,
-    model: prefsModel.value.trim() || undefined,
+    model: prefsModel.value || undefined,
     apiKey: prefsApiKey.value.trim() || undefined,
   };
 

@@ -295,21 +295,138 @@ Implementation:
 
 - **Test**: Execute a plan that installs tools via bioconda, runs commands, produces results. See conda env creation, DAG progress updates, and results rendered in Results tab.
 
-### Phase 4: Galaxy Bridge
+### Phase 4: Parameter Configuration & Test Run
+
+#### Context
+After a plan is created and shown, the current flow jumps straight to execution. For real bioinformatics pipelines biologists need to review and adjust **critical biological parameters** (organism, expected genome size, coverage thresholds) without being buried in **automatic parameters** (thread counts, file paths, verbose flags). They also need confidence the pipeline actually works before committing to a full run — hence a test run on minimal data.
+
+This phase adds a parameter configuration step between plan display and execution. After the plan is approved "in principle," the agent analyzes every tool the plan uses, identifies critical biological parameters across all tools, and generates a **single consolidated form** (per plan, not per tool) with Galaxy-tool-form-style widgets and biologist-friendly explanations. The user can then optionally run a test with minimal synthetic/subsampled data before the real execution.
+
+#### UX flow
+1. Agent creates plan → shown in Plan tab as rendered markdown (existing Phase 2 behavior)
+2. Plan tab now has two buttons at the bottom:
+   - **"Review parameters"** (primary) — triggers parameter analysis, form **replaces** Plan view
+   - **"Execute anyway"** (secondary) — skips parameter review, runs with agent defaults
+3. "Review parameters" → agent analyzes every tool, generates `ParameterFormSpec`, emits via `setWidget("parameters", ...)`. The Plan tab content is replaced by the form
+4. Form shows parameter groups by **biology concept** (Organism, Input data, Quality thresholds, Output options), not by tool
+5. Form has:
+   - "← Back to plan" link at top (returns to Plan view, preserves values)
+   - **"Test run (minimal data)"** button at bottom
+   - **"Execute (real data)"** button at bottom
+6. "Test run" → agent generates test data (subsample or synthesize, agent decides per input) in `<analysis_dir>/test_data/`, runs full pipeline with test data, results marked "TEST RUN"
+7. "Execute" → full run with configured parameters
+
+#### Parameter form spec shape
+
+```typescript
+interface ParameterFormSpec {
+  planId: string;
+  title: string;                // "Parameters for S. aureus hybrid assembly"
+  description: string;          // 1-2 sentences, biologist-friendly
+  groups: ParameterGroup[];
+}
+
+interface ParameterGroup {
+  title: string;                // "Organism & Reference"
+  description: string;          // plain-language group explanation
+  params: Parameter[];
+}
+
+interface Parameter {
+  name: string;
+  type: "text" | "integer" | "float" | "boolean" | "select" | "file";
+  label: string;
+  help: string;                 // biologist-centric explanation
+  value: string | number | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { value: string; label: string }[];
+  fileFilter?: string;
+  usedBy?: string[];            // tools that use this param (internal)
+}
+```
+
+Widgets supported (subset of Galaxy): **text, integer, float, boolean, select, file**. Skip `conditional`, `repeat`, `data_collection`, `section` nesting, `drill_down` — agent flattens nested params and uses groups for organization.
+
+#### New tools in extension
+
+1. **`analyze_plan_parameters`** — called when user clicks "Review parameters". Agent inspects the current plan, reasons about each tool's parameters, classifies critical vs automatic, produces the form spec. Emits via `ctx.ui.setWidget("parameters", [JSON.stringify(spec)])`. Returns the spec as the tool result.
+2. **`generate_test_data`** — called when user clicks "Test run". Agent decides strategy per input: subsample real files with `seqkit sample` / `head`, or synthesize with `wgsim` / `python`. Creates files in `<analysis_dir>/test_data/`. Returns a map of original path → test data path.
+3. **Plan state additions** — extend the in-memory `Plan`:
+   ```typescript
+   interface Plan {
+     ...existing...
+     parameters?: Record<string, unknown>;   // configured values
+     testMode?: boolean;                      // true during test run
+     testDataMap?: Record<string, string>;   // real path → test path
+   }
+   ```
+   `run_command` substitutes test paths when `testMode` is true.
+
+#### UI changes
+
+- `app/src/renderer/index.html`: add `<div id="plan-parameters">` inside `#tab-plan`, rename "Execute" → "Execute anyway", add "Review parameters" button
+- `app/src/renderer/artifacts/parameter-form.ts` (NEW): `class ParameterForm` with `render(spec)`, `getValues()`, `clear()`, `setDisabled()` and widget renderers per type
+- `app/src/renderer/artifacts/artifact-panel.ts`: add `showParameters(spec)`, `hideParameters()`, `getParameterValues()` methods
+- `app/src/renderer/app.ts`: handle `setWidget("parameters", ...)`, wire new buttons, send configured params back to agent via prompts
+- `app/src/renderer/styles.css`: form field, group, widget styles; TEST RUN banner for results
+
+#### System prompt additions
+
+Add to `before_agent_start` systemPromptSuffix:
+```
+When calling analyze_plan_parameters, classify every tool parameter as follows:
+- INCLUDE as critical (user-visible):
+  * Organism/species, reference genome, taxonomy
+  * Expected genome/transcriptome size
+  * Biological thresholds (coverage, identity, length, quality)
+  * Read types (paired/single, short/long)
+  * K-mer sizes, sensitivity modes
+  * Sample names or sample metadata
+  * Any parameter whose change alters biological interpretation
+- EXCLUDE as automatic (hidden):
+  * Thread/CPU count, memory limits
+  * Intermediate output file paths
+  * Verbose/progress/debug flags
+  * Tool versions, output formats
+  * Any parameter that only affects runtime or disk usage
+Group parameters by biology concept (not by tool). Write help text for
+biologists — explain what the parameter means biologically, not how the
+tool uses it. Use defaults from the source workflow if provided, otherwise
+pick sensible defaults for the organism/analysis type.
+
+When generate_test_data is called:
+- If the plan references existing real files, subsample them with
+  seqkit/head/awk into <analysis_dir>/test_data/
+- If no real inputs exist yet, synthesize tiny files using wgsim/python/echo
+- Test data should let the full pipeline run in under 5 minutes
+- Preserve original file extensions and formats
+```
+
+#### Test
+1. Ask agent: "Plan an S. aureus hybrid assembly with autocycler"
+2. Plan appears → click **"Review parameters"** → form replaces plan view with groups (Organism & Reference, Coverage & Quality, etc.) and biologist-friendly help text
+3. Edit a value (min ONT coverage 15 → 20), click "← Back to plan", click "Review parameters" again → value preserved
+4. Click **"Test run"** → agent creates test subdir, runs full pipeline on subsample/synthetic data, results tagged "TEST RUN"
+5. Click **"Execute"** from form → full run with configured params
+6. From plan view, click **"Execute anyway"** → skips param review, runs with defaults
+
+### Phase 5: Galaxy Bridge
 - MCP bridge to galaxy-mcp subprocess
 - Galaxy tools (connect, run, upload, get results)
 - Mixed execution (some steps local, some on Galaxy)
 - State sync to Galaxy server
 - **Test**: Connect to usegalaxy.org, run a tool, retrieve results
 
-### Phase 5: End-to-End Prototype
+### Phase 6: End-to-End Prototype
 - Full S_aureus scenario: "analyze this paper, assemble with autocycler"
 - Agent reads PDF, reads existing S_aureus scripts as examples
 - Agent creates plan, user approves, agent executes
 - Results displayed in artifact pane
 - **Test**: Complete the prototype scenario from the Goal section
 
-### Phase 6: Artifact sharing via GitHub
+### Phase 7: Artifact sharing via GitHub
 
 Agent-driven git operations. No new Preferences UI — keep settings simple.
 

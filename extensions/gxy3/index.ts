@@ -10,6 +10,7 @@ import { Type } from "@sinclair/typebox";
 import { v4 as uuid } from "uuid";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import { execSync, spawn, type ChildProcess } from "child_process";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ function condaBin(): string {
   // Read config preference
   let pref: string = "auto";
   try {
-    const cfgPath = path.join(process.env.HOME || "", ".gxy3", "config.json");
+    const cfgPath = path.join(os.homedir(), ".gxy3", "config.json");
     if (fs.existsSync(cfgPath)) {
       const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
       if (cfg.condaBin) pref = cfg.condaBin;

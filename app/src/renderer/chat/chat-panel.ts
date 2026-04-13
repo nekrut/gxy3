@@ -137,6 +137,15 @@ export class ChatPanel {
     this.scrollToBottom();
   }
 
+  /** Add a system/info message with neutral styling and HTML support. */
+  addInfoMessage(html: string): void {
+    const el = document.createElement("div");
+    el.className = "message assistant system-info";
+    el.innerHTML = html;
+    this.container.appendChild(el);
+    this.scrollToBottom();
+  }
+
   private renderCurrentMessage(): void {
     if (!this.currentMessage) return;
 

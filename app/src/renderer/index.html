@@ -75,7 +75,7 @@
       </div>
       <div id="artifact-content">
         <div id="tab-plan" class="tab-panel active">
-          <div class="empty-state">No analysis plan yet. Describe what you'd like to analyze in the chat.</div>
+          <div class="empty-state">No analysis plan yet. To create a plan begin your conversation with 'Create a plan for analysis of ...'. For examples, use '/help'.</div>
           <div id="plan-toolbar" class="plan-toolbar hidden">
             <div class="plan-mode-toggle">
               <button class="mode-btn active" data-mode="rendered">Rendered</button>
@@ -86,13 +86,15 @@
           <textarea id="plan-raw" class="plan-editor hidden" spellcheck="false"></textarea>
           <div id="plan-actions" class="plan-actions hidden">
             <button id="review-params-btn" class="plan-btn primary">Review parameters</button>
-            <button id="execute-plan-btn" class="plan-btn execute">Execute anyway</button>
+            <button id="plan-test-run-btn" class="plan-btn primary">Test run (minimal data)</button>
+            <button id="plan-execute-btn" class="plan-btn execute">Execute (real data)</button>
           </div>
 
           <!-- Phase 4: Parameter configuration form (replaces plan view when active) -->
           <div id="plan-params-view" class="plan-params-view hidden">
             <div class="plan-params-back-row">
-              <button id="params-back-btn" class="plan-params-back" title="Return to plan view">&larr; Back to plan</button>
+              <button id="params-back-btn" class="plan-params-back" title="Discard changes">&larr; Back to plan</button>
+              <button id="params-save-btn" class="plan-btn primary" title="Save parameters and return to plan">Save parameters</button>
             </div>
             <div id="plan-params-form" class="param-form"></div>
             <div id="plan-params-actions" class="plan-actions">

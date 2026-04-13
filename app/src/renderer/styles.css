@@ -299,6 +299,52 @@ html, body {
   padding: 0;
 }
 
+.message.system-info {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.message.system-info h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-bright);
+  margin: 0 0 6px;
+}
+
+.message.system-info ul {
+  margin: 4px 0 12px;
+  padding-left: 20px;
+}
+
+.message.system-info li {
+  margin: 3px 0;
+}
+
+.message.system-info code {
+  font-family: var(--font);
+  font-size: 12px;
+  background: var(--bg-deep);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.message.system-info .help-example {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin: 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  font-style: italic;
+}
+
 /* ── Thinking Indicator ────────────────────────────────────────────────────── */
 
 .thinking-indicator {
@@ -1092,6 +1138,9 @@ html, body {
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .plan-params-back {

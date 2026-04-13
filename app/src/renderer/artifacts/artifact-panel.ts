@@ -45,6 +45,7 @@ export class ArtifactPanel {
   private planContent = "";
   private mode: "rendered" | "raw" = "rendered";
   private paramsActive = false;
+  private savedParams: Record<string, string | number | boolean> | null = null;
 
   constructor() {
     this.planEl = document.getElementById("tab-plan")!;
@@ -129,6 +130,19 @@ export class ArtifactPanel {
 
   hasParameterSpec(): boolean {
     return this.parameterForm.hasSpec();
+  }
+
+  /** Snapshot current form values so they survive navigating away. */
+  saveParameters(): void {
+    this.savedParams = this.getParameterValues();
+  }
+
+  getSavedParameters(): Record<string, string | number | boolean> | null {
+    return this.savedParams;
+  }
+
+  hasSavedParameters(): boolean {
+    return this.savedParams !== null;
   }
 
   setParametersDisabled(disabled: boolean): void {
@@ -305,6 +319,34 @@ export class ArtifactPanel {
 
   clearResults(): void {
     this.resultsEl.innerHTML = '<div class="empty-state">Results will appear here as the analysis runs.</div>';
+  }
+
+  /** Reset all tabs to their initial empty state. */
+  clear(): void {
+    // Plan tab
+    this.planContent = "";
+    this.mode = "rendered";
+    this.savedParams = null;
+    if (this.paramsActive) this.hideParameters();
+    this.renderedEl.innerHTML = "";
+    this.renderedEl.classList.add("hidden");
+    this.rawEl.value = "";
+    this.rawEl.classList.add("hidden");
+    this.toolbarEl.classList.add("hidden");
+    this.actionsEl.classList.add("hidden");
+    // Restore plan empty state if missing
+    if (!this.planEl.querySelector(".empty-state")) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No analysis plan yet. To create a plan begin your conversation with 'Create a plan for analysis of ...'. For examples, use '/help'.";
+      this.planEl.insertBefore(empty, this.planEl.firstChild);
+    }
+
+    // Steps tab
+    this.stepsEl.innerHTML = '<div class="empty-state">Pipeline steps will appear here once a plan is created.</div>';
+
+    // Results tab
+    this.clearResults();
   }
 }
 

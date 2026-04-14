@@ -4,7 +4,7 @@ title: "Lifecycle Test"
 status: draft
 phase: problem_definition
 created: "2026-04-14T20:33:35.451Z"
-updated: "2026-04-14T20:33:35.451Z"
+updated: "2026-04-14T20:33:35.500Z"
 
 galaxy:
   server_url: ""
@@ -33,7 +33,7 @@ galaxy:
 step:
   id: "1"
   name: "FastQC"
-  status: pending
+  status: in_progress
   execution:
     type: tool
 ```

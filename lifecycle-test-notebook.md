@@ -1,10 +1,10 @@
 ---
-plan_id: "f5b8bf9a-b66b-4098-bed0-6d92a84b3b3f"
+plan_id: "c4730ca9-8187-494d-813b-35d96771978c"
 title: "Lifecycle Test"
 status: draft
 phase: problem_definition
-created: "2026-04-14T20:27:32.799Z"
-updated: "2026-04-14T20:27:32.843Z"
+created: "2026-04-14T20:30:33.521Z"
+updated: "2026-04-14T20:30:33.521Z"
 
 galaxy:
   server_url: ""
@@ -27,35 +27,12 @@ galaxy:
 
 ## Analysis Plan
 
-### Step 1: FastQC
-
-```yaml
-step:
-  id: "1"
-  name: "FastQC"
-  status: in_progress
-  execution:
-    type: tool
-```
-
-**Purpose**: QC check
 ---
 
 ## Execution Log
 
 <!-- Append-only: new entries added at bottom -->
 
-### 2026-04-14 20:27 - Decision: parameter_choice
-
-```yaml
-decision:
-  timestamp: "2026-04-14T20:27:32.869Z"
-  step_id: "1"
-  type: "parameter_choice"
-  description: "Default params"
-  rationale: "Good defaults"
-  researcher_approved: true
-```
 ---
 
 ## Galaxy References

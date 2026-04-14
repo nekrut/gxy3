@@ -1,10 +1,10 @@
 ---
-plan_id: "3c8c68b8-77ce-4550-9021-75b054a8308f"
+plan_id: "39ddf03a-ec81-48c3-9274-9424cb22c8cd"
 title: "Get Test"
 status: draft
 phase: problem_definition
-created: "2026-04-14T20:32:58.214Z"
-updated: "2026-04-14T20:32:58.214Z"
+created: "2026-04-14T20:33:35.426Z"
+updated: "2026-04-14T20:33:35.426Z"
 
 galaxy:
   server_url: ""

@@ -128,6 +128,10 @@ const EXPECTED_TOOLS = [
   // GTN Tutorial Discovery
   "gtn_search",
   "gtn_fetch",
+
+  // Shell-facing tools (gxy3 Electron UI)
+  "report_result",
+  "analyze_plan_parameters",
 ];
 
 const EXPECTED_COMMANDS = [

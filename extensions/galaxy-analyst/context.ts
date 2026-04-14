@@ -130,6 +130,7 @@ ${planSummary}
 - Lead with the answer or action. Skip preamble and transitions.
 - One sentence when one sentence suffices. Never repeat what the user said.
 - Do NOT use exclamation marks, "Great!", "Excellent!", "Sure!", or similar.
+- Minimize emoji usage. Plain text is preferred.
 ${workflowContext}${brcSection}
 ${galaxyContext}
 `

@@ -76,6 +76,19 @@ import {
   type GalaxyInvocationResponse,
 } from "./galaxy-api";
 
+// Module-level state for display_plan / update_step (shell-facing tools)
+interface ShellStep {
+  id: string;
+  name: string;
+  description: string;
+  status: "pending" | "in_progress" | "completed" | "failed" | "skipped";
+  dependsOn: string[];
+  result?: string;
+  command?: string;
+  explanation?: string;
+}
+let lastDisplayedSteps: ShellStep[] = [];
+
 export function registerPlanTools(pi: ExtensionAPI): void {
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -2670,6 +2683,125 @@ analyses in Galaxy.`,
   // ─────────────────────────────────────────────────────────────────────────────
   // Shell-facing tools (emit structured widgets for the gxy3 Electron UI)
   // ─────────────────────────────────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "display_plan",
+    label: "Display Plan",
+    description:
+      "Display an analysis plan in the artifact pane for user review. " +
+      "Call this whenever you create or update a plan. The plan is shown as rendered markdown " +
+      "in the Plan tab, and the steps appear as a visual DAG in the Steps tab.",
+    parameters: Type.Object({
+      title: Type.String({ description: "Short title for the plan" }),
+      content: Type.String({
+        description: "Full plan in markdown. Include numbered steps with descriptions.",
+      }),
+      steps: Type.Array(
+        Type.Object({
+          name: Type.String({ description: "Short step name" }),
+          description: Type.String({ description: "What this step does" }),
+          dependsOn: Type.Optional(Type.Array(Type.String({
+            description: "Names of steps this depends on",
+          }))),
+        }),
+        { description: "Structured list of plan steps for the visual DAG" },
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // Build steps with UUIDs; resolve dependsOn names to IDs
+      const steps = params.steps.map((s: { name: string; description: string; dependsOn?: string[] }) => ({
+        id: Math.random().toString(36).slice(2, 10),
+        name: s.name,
+        description: s.description,
+        status: "pending" as const,
+        dependsOn: s.dependsOn || [],
+      }));
+
+      for (const step of steps) {
+        step.dependsOn = step.dependsOn.map((dep: string) => {
+          const found = steps.find((s: { name: string; id: string }) => s.name === dep);
+          return found ? found.id : dep;
+        });
+      }
+
+      // Track steps for update_step
+      lastDisplayedSteps = steps;
+
+      // Emit plan markdown + structured steps
+      ctx.ui.setWidget("plan", params.content.split("\n"));
+      ctx.ui.setWidget("steps", [JSON.stringify(steps)]);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            planTitle: params.title,
+            stepCount: steps.length,
+            stepIds: steps.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })),
+          }),
+        }],
+        details: { title: params.title, stepCount: steps.length },
+      };
+    },
+    renderResult: (result) => {
+      const d = result.details as { title?: string; stepCount?: number } | undefined;
+      return new Text(`Plan: ${d?.title || "?"} (${d?.stepCount || 0} steps)`);
+    },
+  });
+
+  pi.registerTool({
+    name: "update_step",
+    label: "Update Step",
+    description:
+      "Update the status of a plan step. The visual DAG updates automatically. " +
+      "Call this as steps progress through execution.",
+    parameters: Type.Object({
+      stepId: Type.String({ description: "Step ID returned by display_plan" }),
+      status: Type.Union([
+        Type.Literal("in_progress"),
+        Type.Literal("completed"),
+        Type.Literal("failed"),
+        Type.Literal("skipped"),
+      ], { description: "New step status" }),
+      description: Type.Optional(Type.String({ description: "Updated description" })),
+      result: Type.Optional(Type.String({ description: "Result summary" })),
+      command: Type.Optional(Type.String({ description: "Command that was executed" })),
+      explanation: Type.Optional(Type.String({ description: "What the command does" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // We need to retrieve + update the steps from the last display_plan call.
+      // Since display_plan emits steps as a widget, we track them in module state.
+      const step = lastDisplayedSteps.find(s => s.id === params.stepId);
+      if (!step) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ success: false, error: `Step ${params.stepId} not found` }) }],
+          details: { error: true },
+        };
+      }
+
+      step.status = params.status;
+      if (params.description) step.description = params.description;
+      if (params.result) step.result = params.result;
+      if (params.command) step.command = params.command;
+      if (params.explanation) step.explanation = params.explanation;
+
+      ctx.ui.setWidget("steps", [JSON.stringify(lastDisplayedSteps)]);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({ success: true, stepId: params.stepId, status: params.status }),
+        }],
+        details: { stepId: params.stepId, status: params.status },
+      };
+    },
+    renderResult: (result) => {
+      const d = result.details as { stepId?: string; status?: string; error?: boolean } | undefined;
+      if (d?.error) return new Text("Step not found");
+      return new Text(`Step ${d?.stepId}: ${d?.status}`);
+    },
+  });
 
   pi.registerTool({
     name: "report_result",

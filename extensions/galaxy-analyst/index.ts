@@ -8,6 +8,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerPlanTools } from "./tools";
 import { setupContextInjection } from "./context";
+import { setupUIBridge } from "./ui-bridge";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -148,6 +149,11 @@ export default function galaxyAnalystExtension(pi: ExtensionAPI): void {
   // Set up context injection
   // ─────────────────────────────────────────────────────────────────────────────
   setupContextInjection(pi);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Wire UI bridge for gxy3 Electron shell (plan → DAG, steps, results)
+  // ─────────────────────────────────────────────────────────────────────────────
+  setupUIBridge(pi);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Persist state before compaction

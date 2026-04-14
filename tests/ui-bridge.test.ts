@@ -1,0 +1,199 @@
+import { describe, it, expect } from "vitest";
+import { toShellSteps, planToMarkdown } from "../extensions/galaxy-analyst/ui-bridge";
+import { createPlan, addStep, updateStepStatus, resetState, onPlanChange } from "../extensions/galaxy-analyst/state";
+import type { AnalysisPlan } from "../extensions/galaxy-analyst/types";
+
+describe("ui-bridge", () => {
+  describe("toShellSteps", () => {
+    it("maps AnalysisStep[] to ShellStep[]", () => {
+      resetState();
+      const plan = createPlan({
+        title: "Test Plan",
+        researchQuestion: "Does X cause Y?",
+        dataDescription: "RNA-seq data",
+        expectedOutcomes: ["DEGs"],
+        constraints: [],
+      });
+
+      addStep({
+        name: "Quality Control",
+        description: "Run FastQC on raw reads",
+        executionType: "tool",
+        toolId: "fastqc",
+        inputs: [{ name: "reads", description: "FASTQ files" }],
+        expectedOutputs: ["qc_report"],
+        dependsOn: [],
+      });
+
+      addStep({
+        name: "Alignment",
+        description: "Align reads to reference",
+        executionType: "tool",
+        toolId: "hisat2",
+        inputs: [{ name: "reads", description: "Trimmed reads", fromStep: "1" }],
+        expectedOutputs: ["bam"],
+        dependsOn: ["1"],
+      });
+
+      const shell = toShellSteps(plan);
+      expect(shell).toHaveLength(2);
+      expect(shell[0].id).toBe("1");
+      expect(shell[0].name).toBe("Quality Control");
+      expect(shell[0].status).toBe("pending");
+      expect(shell[0].dependsOn).toEqual([]);
+      expect(shell[0].command).toBe("fastqc");
+      expect(shell[1].dependsOn).toEqual(["1"]);
+    });
+
+    it("maps step result summary", () => {
+      resetState();
+      createPlan({
+        title: "Test",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+
+      addStep({
+        name: "Step 1",
+        description: "Do something",
+        executionType: "tool",
+        inputs: [],
+        expectedOutputs: [],
+        dependsOn: [],
+      });
+
+      updateStepStatus("1", "completed", {
+        completedAt: new Date().toISOString(),
+        summary: "All QC metrics passed",
+        qcPassed: true,
+      });
+
+      const plan = createPlan({
+        title: "Dummy",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+      // Re-create to get clean plan; use the first one
+      resetState();
+      const p = createPlan({
+        title: "Test",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+      addStep({
+        name: "QC",
+        description: "Quality control",
+        executionType: "tool",
+        inputs: [],
+        expectedOutputs: [],
+        dependsOn: [],
+      });
+      updateStepStatus("1", "completed", {
+        completedAt: new Date().toISOString(),
+        summary: "Passed",
+        qcPassed: true,
+      });
+
+      const shell = toShellSteps(p);
+      expect(shell[0].result).toBe("Passed");
+      expect(shell[0].status).toBe("completed");
+    });
+  });
+
+  describe("planToMarkdown", () => {
+    it("renders plan title, phase, and steps", () => {
+      resetState();
+      const plan = createPlan({
+        title: "RNA-seq Analysis",
+        researchQuestion: "What genes are differentially expressed?",
+        dataDescription: "Paired-end Illumina",
+        expectedOutcomes: ["DEG list", "Pathway enrichment"],
+        constraints: [],
+      });
+
+      addStep({
+        name: "FastQC",
+        description: "Quality control",
+        executionType: "tool",
+        inputs: [],
+        expectedOutputs: [],
+        dependsOn: [],
+      });
+
+      const md = planToMarkdown(plan);
+      expect(md).toContain("# RNA-seq Analysis");
+      expect(md).toContain("**Phase:** problem definition");
+      expect(md).toContain("## Research Question");
+      expect(md).toContain("differentially expressed");
+      expect(md).toContain("## Steps");
+      expect(md).toContain("**FastQC**");
+    });
+  });
+
+  describe("onPlanChange", () => {
+    it("fires when createPlan is called", () => {
+      resetState();
+      let fired = false;
+      onPlanChange(() => { fired = true; });
+      createPlan({
+        title: "Test",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+      expect(fired).toBe(true);
+    });
+
+    it("fires when addStep is called", () => {
+      resetState();
+      createPlan({
+        title: "Test",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+      let count = 0;
+      onPlanChange(() => { count++; });
+      addStep({
+        name: "S1",
+        description: "D1",
+        executionType: "tool",
+        inputs: [],
+        expectedOutputs: [],
+        dependsOn: [],
+      });
+      expect(count).toBeGreaterThan(0);
+    });
+
+    it("fires when updateStepStatus is called", () => {
+      resetState();
+      createPlan({
+        title: "Test",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+      addStep({
+        name: "S1",
+        description: "D1",
+        executionType: "tool",
+        inputs: [],
+        expectedOutputs: [],
+        dependsOn: [],
+      });
+      let count = 0;
+      onPlanChange(() => { count++; });
+      updateStepStatus("1", "in_progress");
+      expect(count).toBeGreaterThan(0);
+    });
+  });
+});

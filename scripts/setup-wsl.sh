@@ -22,6 +22,21 @@ if ! grep -qi microsoft /proc/version 2>/dev/null; then
   [[ "$yn" =~ ^[Yy] ]] || exit 0
 fi
 
+# ── Electron system libraries ────────────────────────────────────────────────
+# Electron needs libnss3, GTK, ALSA, etc. WSL2 Ubuntu ships minimal, so install them.
+# Ubuntu 24.04 renamed several packages with a t64 suffix (time_t transition); try
+# t64 names first, fall back to plain names for older releases.
+echo "Installing Electron system libraries (requires sudo)..."
+sudo apt-get update
+DEPS_COMMON=(libnss3 libgbm1 libxss1 libxcomposite1 libxdamage1 libxrandr2 libdrm2 libxkbcommon0 libpango-1.0-0 libcairo2)
+sudo apt-get install -y "${DEPS_COMMON[@]}"
+DEPS_T64=(libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libgtk-3-0t64 libasound2t64)
+DEPS_PLAIN=(libatk1.0-0 libatk-bridge2.0-0 libcups2 libgtk-3-0 libasound2)
+if ! sudo apt-get install -y "${DEPS_T64[@]}" 2>/dev/null; then
+  sudo apt-get install -y "${DEPS_PLAIN[@]}"
+fi
+echo ""
+
 # ── Node.js via nvm ──────────────────────────────────────────────────────────
 if ! command -v node &>/dev/null; then
   echo "Installing Node.js via nvm..."

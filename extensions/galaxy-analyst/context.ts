@@ -106,13 +106,24 @@ ${galaxyContext}
 
 ${planSummary}
 
-## Analysis Protocol Reminders
+## Analysis Protocol
 - Get researcher approval before each step
 - Log decisions with \`analysis_step_log\`
 - Update step status with \`analysis_plan_update_step\`
 - Create QC checkpoints with \`analysis_checkpoint\`
 - Record biological findings with \`interpretation_add_finding\`
+- Use \`report_result\` for tables, plots, files, and markdown summaries
+- Use \`analyze_plan_parameters\` when the user requests parameter review
 - Use \`analysis_plan_get\` for full plan details
+
+## Execution Rules
+- Default tool execution is Galaxy user-defined tools. Search Galaxy for existing tools first.
+- DO NOT narrate plan execution in chat. The shell renders progress from structured events.
+- Use tools — NOT chat prose — to communicate during execution:
+  - \`analysis_plan_update_step\` → step progress (visible in the DAG)
+  - \`report_result\` → output tables, plots, files (visible in Results tab)
+- Chat is for questions, conclusions, and user-visible reasoning only.
+- After calling \`analysis_plan_create\`, do NOT write a plan summary in chat — the Plan tab already shows it.
 ${workflowContext}${brcSection}
 ${galaxyContext}
 `

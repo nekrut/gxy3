@@ -77,14 +77,33 @@ Electron App
 
 ## Installation
 
-### Prerequisites (all platforms)
+### Linux (Ubuntu/Debian)
 
-- [Node.js](https://nodejs.org/) 20+ (LTS recommended)
-- [Conda](https://github.com/conda-forge/miniforge) or Mamba (for bioinformatics tool installation)
-- An LLM API key (Anthropic, OpenAI, or Google) — configured in Preferences on first launch
+Open a terminal and run the following commands one by one:
 
-### Linux
+**Step 1 — Install system dependencies:**
+```bash
+sudo apt update
+sudo apt install -y git curl build-essential
+```
 
+**Step 2 — Install Node.js** (if you don't already have it):
+```bash
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install --lts
+```
+
+**Step 3 — Install Miniforge** (provides conda and mamba for bioinformatics tools):
+```bash
+curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o ~/miniforge.sh
+bash ~/miniforge.sh -b
+~/miniforge3/bin/conda init bash
+source ~/.bashrc
+rm ~/miniforge.sh
+```
+
+**Step 4 — Clone and start gxy3:**
 ```bash
 git clone https://github.com/nekrut/gxy3.git
 cd gxy3 && npm install
@@ -94,6 +113,25 @@ npm start
 
 ### macOS
 
+**Step 1 — Install Homebrew** (if you don't already have it). Open **Terminal** (search for "Terminal" in Spotlight) and paste:
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+Follow the prompts. This will also install Xcode Command Line Tools automatically if needed.
+
+**Step 2 — Install Node.js and Git:**
+```bash
+brew install node git
+```
+
+**Step 3 — Install Miniforge** (provides conda and mamba for bioinformatics tools):
+```bash
+brew install miniforge
+conda init "$(basename "$SHELL")"
+source ~/.zshrc
+```
+
+**Step 4 — Clone and start gxy3:**
 ```bash
 git clone https://github.com/nekrut/gxy3.git
 cd gxy3 && npm install
@@ -101,42 +139,41 @@ cd app && npm install
 npm start
 ```
 
-Requires Xcode Command Line Tools (`xcode-select --install`) for native module compilation.
+### Windows
 
-### Windows (via WSL2)
+gxy3 runs on Windows inside WSL2 (Windows Subsystem for Linux). This gives you a full Linux environment with graphical display support — no dual-booting needed.
 
-gxy3 runs on Windows inside WSL2 (Windows Subsystem for Linux). WSLg provides the graphical display automatically.
-
-**Step 1 — Install WSL2** (PowerShell as Administrator):
+**Step 1 — Install WSL2.** Right-click the Start button, select **Terminal (Admin)** or **PowerShell (Admin)**, and run:
 ```powershell
 wsl --install --web-download -d Ubuntu
 ```
-Reboot, then open **Ubuntu** from the Start menu and create your Linux user.
+Restart your computer when prompted. After reboot, **Ubuntu** will open automatically — create a username and password when asked.
 
-**Step 2 — Run the setup script** (inside Ubuntu):
+**Step 2 — Run the setup script.** Inside the Ubuntu window, paste this line and press Enter:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nekrut/gxy3/master/scripts/setup-wsl.sh | bash
 source ~/.bashrc
 ```
+This installs Node.js, Miniforge (conda + mamba), and clones gxy3. It takes a few minutes.
 
-This installs Node.js, Miniforge (conda+mamba), and clones gxy3.
-
-**Step 3 — Launch**:
+**Step 3 — Launch gxy3:**
 ```bash
 cd ~/gxy3/app && npm start
 ```
+The gxy3 window will appear on your Windows desktop (WSLg handles the display automatically).
 
 > **Tips for Windows/WSL2:**
-> - Keep analysis data inside `~/` (the WSL2 filesystem) for best performance
-> - Avoid working on `/mnt/c/` paths — cross-filesystem access is slow
-> - Windows 11 has WSLg built in; Windows 10 needs `wsl --update`
+> - Keep your analysis data inside `~/` (the Linux filesystem) for best performance
+> - Avoid working on `/mnt/c/` paths — cross-filesystem access is significantly slower
+> - Windows 11 has WSLg built in; on Windows 10 run `wsl --update` first
+> - To open Ubuntu again later, search for "Ubuntu" in the Start menu
 
-### Configuration
+### After installation
 
-On first launch, open Preferences (gear icon or `Cmd/Ctrl+,`) to set:
-- **LLM provider** and API key (Anthropic, OpenAI, Google, or Ollama for local models)
-- **Working directory** for analysis output
-- **Package manager** preference (auto/mamba/conda)
+On first launch, open **Preferences** (gear icon or `Ctrl+,` / `Cmd+,` on Mac) to set:
+- **LLM provider** and API key — you need at least one of: [Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [Google AI](https://aistudio.google.com/) API key. Alternatively, use [Ollama](https://ollama.com/) for free local models.
+- **Working directory** — where analysis output will be saved
+- **Package manager** — leave as "auto" (prefers mamba, falls back to conda)
 
 ## Project structure
 

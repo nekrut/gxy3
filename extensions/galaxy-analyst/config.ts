@@ -1,5 +1,5 @@
 /**
- * Consolidated config file for gxypi (~/.gxypi/config.json)
+ * Consolidated config file for gxy3 (~/.gxy3/config.json)
  *
  * Single source of truth for user-facing configuration: Galaxy server
  * profiles and LLM provider settings. Both sections are optional —
@@ -10,7 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-export interface GxypiConfig {
+export interface Gxy3Config {
   llm?: {
     provider?: string;
     apiKey?: string;
@@ -23,14 +23,14 @@ export interface GxypiConfig {
 }
 
 export function getConfigDir(): string {
-  return path.join(os.homedir(), ".gxypi");
+  return path.join(os.homedir(), ".gxy3");
 }
 
 export function getConfigPath(): string {
   return path.join(getConfigDir(), "config.json");
 }
 
-export function loadConfig(): GxypiConfig {
+export function loadConfig(): Gxy3Config {
   const p = getConfigPath();
   if (fs.existsSync(p)) {
     try {
@@ -42,7 +42,7 @@ export function loadConfig(): GxypiConfig {
   return {};
 }
 
-export function saveConfig(config: GxypiConfig): void {
+export function saveConfig(config: Gxy3Config): void {
   const dir = getConfigDir();
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2) + "\n");

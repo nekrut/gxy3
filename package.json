@@ -16,7 +16,7 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/gxy3"
+      "./extensions/galaxy-analyst"
     ],
     "skills": [
       "./skills"

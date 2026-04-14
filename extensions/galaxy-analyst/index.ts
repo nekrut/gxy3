@@ -1,5 +1,5 @@
 /**
- * gxypi - Galaxy co-scientist extension for Pi.dev
+ * gxy3 - Galaxy co-scientist extension for Pi.dev
  *
  * Provides plan-based analysis orchestration for Galaxy bioinformatics workflows.
  * Manages analysis state, registers custom tools, and injects context.
@@ -126,14 +126,14 @@ export default function galaxyAnalystExtension(pi: ExtensionAPI): void {
       // Fresh session with Galaxy credentials
       pi.sendUserMessage(
         `Session started, no existing analysis in this directory. ` +
-        `Give a brief welcome to gxypi, then ask what I'd like to work on — what research question or data do I have? ` +
+        `Give a brief welcome to gxy3, then ask what I'd like to work on — what research question or data do I have? ` +
         `Keep the greeting to 2-3 sentences.${connectInstr}`
       );
     } else {
       // Fresh session, no credentials
       pi.sendUserMessage(
         `Session started, no existing analysis in this directory and no Galaxy server configured. ` +
-        `Give a brief welcome to gxypi, mention I can use /connect to set up a Galaxy server, ` +
+        `Give a brief welcome to gxy3, mention I can use /connect to set up a Galaxy server, ` +
         `and ask what I'd like to work on. Keep it to 2-3 sentences.`
       );
     }
@@ -422,7 +422,7 @@ export default function galaxyAnalystExtension(pi: ExtensionAPI): void {
       const plan = getCurrentPlan();
 
       const lines: string[] = [];
-      lines.push("🔬 gxypi Status");
+      lines.push("🔬 gxy3 Status");
       lines.push("");
 
       // Connection status

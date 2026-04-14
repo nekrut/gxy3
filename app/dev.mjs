@@ -7,11 +7,13 @@
  */
 import { spawn } from "node:child_process";
 import { createServer, build } from "vite";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ELECTRON = path.join(__dirname, "node_modules/electron/dist/electron");
+const require = createRequire(import.meta.url);
+const ELECTRON = require("electron");
 
 // Build main process
 console.log("[gxy3] Building main...");

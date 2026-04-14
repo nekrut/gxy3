@@ -75,18 +75,68 @@ Electron App
 - Agent-driven `git push` via existing `gh` CLI / SSH / PAT
 - No new UI — agent detects auth and handles everything through chat
 
-## Running
+## Installation
+
+### Prerequisites (all platforms)
+
+- [Node.js](https://nodejs.org/) 20+ (LTS recommended)
+- [Conda](https://github.com/conda-forge/miniforge) or Mamba (for bioinformatics tool installation)
+- An LLM API key (Anthropic, OpenAI, or Google) — configured in Preferences on first launch
+
+### Linux
 
 ```bash
-# Install dependencies (both root and app)
-npm install
+git clone https://github.com/nekrut/gxy3.git
+cd gxy3 && npm install
 cd app && npm install
-
-# Start in development mode
-cd app && npm run start
+npm start
 ```
 
-Requires a Pi.dev-compatible LLM API key configured in `~/.gxy3/config.json`.
+### macOS
+
+```bash
+git clone https://github.com/nekrut/gxy3.git
+cd gxy3 && npm install
+cd app && npm install
+npm start
+```
+
+Requires Xcode Command Line Tools (`xcode-select --install`) for native module compilation.
+
+### Windows (via WSL2)
+
+gxy3 runs on Windows inside WSL2 (Windows Subsystem for Linux). WSLg provides the graphical display automatically.
+
+**Step 1 — Install WSL2** (PowerShell as Administrator):
+```powershell
+wsl --install --web-download -d Ubuntu
+```
+Reboot, then open **Ubuntu** from the Start menu and create your Linux user.
+
+**Step 2 — Run the setup script** (inside Ubuntu):
+```bash
+curl -fsSL https://raw.githubusercontent.com/nekrut/gxy3/master/scripts/setup-wsl.sh | bash
+source ~/.bashrc
+```
+
+This installs Node.js, Miniforge (conda+mamba), and clones gxy3.
+
+**Step 3 — Launch**:
+```bash
+cd ~/gxy3/app && npm start
+```
+
+> **Tips for Windows/WSL2:**
+> - Keep analysis data inside `~/` (the WSL2 filesystem) for best performance
+> - Avoid working on `/mnt/c/` paths — cross-filesystem access is slow
+> - Windows 11 has WSLg built in; Windows 10 needs `wsl --update`
+
+### Configuration
+
+On first launch, open Preferences (gear icon or `Cmd/Ctrl+,`) to set:
+- **LLM provider** and API key (Anthropic, OpenAI, Google, or Ollama for local models)
+- **Working directory** for analysis output
+- **Package manager** preference (auto/mamba/conda)
 
 ## Project structure
 

@@ -58,9 +58,54 @@ await build({
 
 // Start renderer dev server
 console.log("[gxy3] Starting renderer dev server...");
+// Vite plugin: neutralize Vite HMR's post-sleep page reload.
+//
+// After a macOS display sleep, Vite's HMR WebSocket drops and on reconnect
+// the client unconditionally calls location.reload(), wiping all renderer
+// state (chat, plan, steps, results) while the agent subprocess keeps
+// running. location.reload is [LegacyUnforgeable] so patching fails from
+// user code, and hmr: false doesn't stop Vite from opening the WebSocket.
+//
+// Workaround: inject a script before @vite/client that wraps WebSocket so
+// that any 'close' event listener registered on it is silently ignored.
+// Vite's reload handler is registered via socket.addEventListener('close',
+// ...), so if the listener never attaches, the reload never fires. 'open'
+// and 'message' listeners still work, so HMR itself is unaffected.
+const noReloadPlugin = {
+  name: "gxy3-no-hmr-reload",
+  transformIndexHtml() {
+    return [
+      {
+        tag: "script",
+        injectTo: "head-prepend",
+        children: `
+(function () {
+  var OrigWS = window.WebSocket;
+  window.WebSocket = new Proxy(OrigWS, {
+    construct: function (target, args) {
+      var ws = new target(args[0], args[1]);
+      var origAdd = ws.addEventListener.bind(ws);
+      ws.addEventListener = function (type, listener, options) {
+        if (type === "close") {
+          console.warn("[gxy3] swallowed WebSocket 'close' listener (display-sleep workaround)");
+          return;
+        }
+        return origAdd(type, listener, options);
+      };
+      return ws;
+    },
+  });
+})();
+`,
+      },
+    ];
+  },
+};
+
 const server = await createServer({
   root: path.resolve(__dirname, "src/renderer"),
   server: { port: 5199, strictPort: false },
+  plugins: [noReloadPlugin],
 });
 await server.listen();
 const port = server.config.server.port;

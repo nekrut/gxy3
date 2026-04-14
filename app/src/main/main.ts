@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog } from "electron";
+import { app, BrowserWindow, Menu, dialog, powerMonitor } from "electron";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs";
 import path from "node:path";
@@ -154,6 +154,37 @@ function createWindow(cwd: string): void {
     agentManager!.start();
   });
 
+  // ── Diagnostic listeners for display-sleep UI-wipe bug ─────────────────────
+  // We're tracking down why the renderer goes blank after the Mac display
+  // sleeps. These log every relevant lifecycle event so we can match them
+  // against the sleep/wake timeline.
+  const wc = mainWindow.webContents;
+  wc.on("did-finish-load", () => log("[diag] webContents did-finish-load"));
+  wc.on("did-start-loading", () => log("[diag] webContents did-start-loading"));
+  wc.on("did-stop-loading", () => log("[diag] webContents did-stop-loading"));
+  wc.on("did-navigate", (_e, url) => log("[diag] webContents did-navigate:", url));
+  wc.on("did-navigate-in-page", (_e, url) => log("[diag] webContents did-navigate-in-page:", url));
+  wc.on("dom-ready", () => log("[diag] webContents dom-ready"));
+  wc.on("render-process-gone", (_e, details) =>
+    log("[diag] render-process-gone:", details.reason, "exitCode:", details.exitCode));
+  wc.on("unresponsive", () => log("[diag] webContents unresponsive"));
+  wc.on("responsive", () => log("[diag] webContents responsive"));
+  wc.on("destroyed", () => log("[diag] webContents destroyed"));
+  // Forward renderer console so Vite HMR messages (reconnect / full-reload) land in our stdout.
+  wc.on("console-message", (_e, level, message, line, sourceId) => {
+    if (message.includes("[vite]") || message.includes("hmr") || message.includes("HMR") ||
+        message.includes("reload") || message.includes("WebSocket")) {
+      log("[diag] renderer console:", message, `(${sourceId}:${line})`);
+    }
+  });
+
+  mainWindow.on("show", () => log("[diag] window show"));
+  mainWindow.on("hide", () => log("[diag] window hide"));
+  mainWindow.on("minimize", () => log("[diag] window minimize"));
+  mainWindow.on("restore", () => log("[diag] window restore"));
+  mainWindow.on("focus", () => log("[diag] window focus"));
+  mainWindow.on("blur", () => log("[diag] window blur"));
+
   mainWindow.on("close", () => {
     if (mainWindow) saveWindowState(mainWindow);
   });
@@ -247,6 +278,16 @@ app.whenReady().then(() => {
   const cwd = getDefaultCwd();
   log("cwd:", cwd);
   createWindow(cwd);
+
+  // ── powerMonitor diagnostics ────────────────────────────────────────────────
+  // Log system sleep/wake + screen lock events so we can correlate with any
+  // renderer reload / blank-UI symptom.
+  powerMonitor.on("suspend", () => log("[diag] powerMonitor suspend"));
+  powerMonitor.on("resume", () => log("[diag] powerMonitor resume"));
+  powerMonitor.on("lock-screen", () => log("[diag] powerMonitor lock-screen"));
+  powerMonitor.on("unlock-screen", () => log("[diag] powerMonitor unlock-screen"));
+  powerMonitor.on("on-ac", () => log("[diag] powerMonitor on-ac"));
+  powerMonitor.on("on-battery", () => log("[diag] powerMonitor on-battery"));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

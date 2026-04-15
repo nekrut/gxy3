@@ -45,6 +45,17 @@ step:
 
 <!-- Append-only: new entries added at bottom -->
 
+### 2026-04-15 17:01 - Decision: parameter_choice
+
+```yaml
+decision:
+  timestamp: "2026-04-15T17:01:37.924Z"
+  step_id: "1"
+  type: "parameter_choice"
+  description: "Default params"
+  rationale: "Good defaults"
+  researcher_approved: true
+```
 ---
 
 ## Galaxy References

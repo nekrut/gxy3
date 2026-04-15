@@ -4,3 +4,5 @@ dist/
 out/
 *.tsbuildinfo
 .env
+spice-guest-tools.exe
+fix-dns-and-install-wsl.bat

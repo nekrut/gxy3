@@ -26,6 +26,7 @@ export class AgentManager {
   private idCounter = 0;
   private cwd: string;
   private hasStartedBefore = false;  // → use --continue on restart to preserve chat history
+  private nextStartIsFresh = false;  // → tells extension to skip notebook auto-load on next start
 
   constructor(window: BrowserWindow, cwd: string) {
     this.window = window;
@@ -35,6 +36,7 @@ export class AgentManager {
   /** Reset session continuity (e.g. when switching to a new analysis directory). */
   resetSession(): void {
     this.hasStartedBefore = false;
+    this.nextStartIsFresh = true;
   }
 
   setCwd(cwd: string): void {
@@ -50,6 +52,10 @@ export class AgentManager {
     return this.cwd;
   }
 
+  getPid(): number | null {
+    return this.process?.pid ?? null;
+  }
+
   start(): void {
     if (this.process) this.stop();
     this.stderr = "";
@@ -63,13 +69,15 @@ export class AgentManager {
     }
     this.hasStartedBefore = true;
 
-    log("starting agent", { bin: GXY3_BIN, cwd: this.cwd, continue: args.includes("--continue") });
+    const fresh = this.nextStartIsFresh;
+    this.nextStartIsFresh = false;
+    log("starting agent", { bin: GXY3_BIN, cwd: this.cwd, continue: args.includes("--continue"), fresh });
 
     try {
       this.process = spawn("node", args, {
         stdio: ["pipe", "pipe", "pipe"],
         cwd: this.cwd,
-        env: { ...process.env },
+        env: { ...process.env, ...(fresh ? { GXY3_FRESH_SESSION: "1" } : {}) },
       });
     } catch (err) {
       log("spawn failed:", err);

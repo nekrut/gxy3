@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, powerMonitor } from "electron";
+import { app, BrowserWindow, Menu, dialog, powerMonitor, nativeImage } from "electron";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs";
 import path from "node:path";
@@ -8,6 +8,7 @@ import { registerIpcHandlers } from "./ipc-handlers.js";
 // Workaround for systems where chrome-sandbox isn't suid root
 app.commandLine.appendSwitch("no-sandbox");
 import { AgentManager } from "./agent.js";
+import { ProcMonitor } from "./proc-monitor.js";
 
 const GXY3_DIR = path.join(os.homedir(), ".gxy3");
 const WINDOW_STATE_FILE = path.join(GXY3_DIR, "window-state.json");
@@ -52,6 +53,7 @@ function saveWindowState(win: BrowserWindow): void {
 
 let mainWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let procMonitor: ProcMonitor | null = null;
 
 function getDefaultCwd(): string {
   // Priority: env var > config.json > hardcoded default
@@ -99,11 +101,17 @@ function createWindow(cwd: string): void {
   log("creating window, cwd:", cwd);
   const saved = loadWindowState();
 
+  // Galaxy logo icon (used as window/dock icon)
+  const iconPath = path.join(__dirname, "../../src/renderer/assets/icons/icon-512.png");
+  const appIcon = nativeImage.createFromPath(iconPath);
+  log("icon path:", iconPath, "empty:", appIcon.isEmpty(), "size:", appIcon.getSize());
+
   mainWindow = new BrowserWindow({
     ...saved,
     minWidth: 800,
     minHeight: 600,
-    title: "gxy3",
+    title: "orbit",
+    icon: appIcon,
     show: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -112,6 +120,11 @@ function createWindow(cwd: string): void {
       sandbox: false,
     },
   });
+
+  // Set dock icon on macOS
+  if (process.platform === "darwin" && !appIcon.isEmpty()) {
+    app.dock?.setIcon(appIcon);
+  }
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
@@ -149,9 +162,12 @@ function createWindow(cwd: string): void {
   agentManager = new AgentManager(mainWindow, cwd);
   registerIpcHandlers(agentManager);
 
+  procMonitor = new ProcMonitor(mainWindow, () => agentManager?.getPid() ?? null);
+
   mainWindow.webContents.once("did-finish-load", () => {
     log("renderer loaded, starting agent");
     agentManager!.start();
+    procMonitor!.start();
   });
 
   // ── Diagnostic listeners for display-sleep UI-wipe bug ─────────────────────
@@ -202,7 +218,7 @@ function openPreferences(): void {
 function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: "gxy3",
+      label: "orbit",
       submenu: [
         { role: "about" },
         { type: "separator" },
@@ -271,6 +287,9 @@ function buildMenu(): void {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+// Set app name early so Linux WM_CLASS matches "orbit"
+app.setName("orbit");
 
 app.whenReady().then(() => {
   log("app ready");

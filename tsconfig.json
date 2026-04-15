@@ -11,5 +11,5 @@
     "resolveJsonModule": true,
     "declaration": true
   },
-  "include": ["extensions/**/*", "bin/**/*"]
+  "include": ["extensions/**/*", "bin/**/*", "tests/**/*"]
 }

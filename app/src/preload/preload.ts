@@ -12,6 +12,17 @@ export interface UiRequest {
   [key: string]: unknown;
 }
 
+export interface ProcInfo {
+  pid: number;
+  ppid: number;
+  pcpu: number;
+  pmem: number;
+  rss: number;
+  etime: string;
+  nlwp: number;
+  command: string;
+}
+
 export interface Gxy3API {
   prompt(message: string): Promise<void>;
   abort(): Promise<void>;
@@ -33,6 +44,7 @@ export interface Gxy3API {
   ): () => void;
   onCwdChanged(callback: (dir: string) => void): () => void;
   onOpenPreferences(callback: () => void): () => void;
+  onProcUpdate(callback: (procs: ProcInfo[]) => void): () => void;
 }
 
 const api: Gxy3API = {
@@ -90,6 +102,12 @@ const api: Gxy3API = {
     const handler = () => callback();
     ipcRenderer.on("menu:open-preferences", handler);
     return () => ipcRenderer.removeListener("menu:open-preferences", handler);
+  },
+
+  onProcUpdate: (callback) => {
+    const handler = (_e: unknown, procs: ProcInfo[]) => callback(procs);
+    ipcRenderer.on("proc:update", handler);
+    return () => ipcRenderer.removeListener("proc:update", handler);
   },
 };
 

@@ -28,7 +28,7 @@ await build({
     },
     rollupOptions: {
       external: ["electron", "node:child_process", "node:readline", "node:path",
-                  "node:fs", "node:os", "node:url"],
+                  "node:fs", "node:os", "node:url", "node:util"],
     },
     minify: false,
     sourcemap: true,
@@ -111,9 +111,11 @@ await server.listen();
 const port = server.config.server.port;
 console.log(`[gxy3] Renderer: http://localhost:${port}/`);
 
-// Launch Electron with dev server URL
-console.log("[gxy3] Launching Electron...");
-const child = spawn(ELECTRON, ["--no-sandbox", "."], {
+// Launch Electron with dev server URL.
+// --class=orbit sets WM_CLASS so GNOME/KDE match the orbit.desktop file
+// (installed at ~/.local/share/applications/) for the dock/launcher icon.
+console.log("[orbit] Launching Electron...");
+const child = spawn(ELECTRON, ["--no-sandbox", "--class=orbit", "."], {
   cwd: __dirname,
   stdio: "inherit",
   env: {

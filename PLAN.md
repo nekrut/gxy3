@@ -23,6 +23,332 @@ As a prototype analysis use analsys performed in /media/anton/data/git/S_aureus.
 
 ---
 
+# Conceptual Rethink (2026-04-15, simplified)
+
+An earlier version of this section proposed a 3-step welcome wizard, an explicit
+chat/plan UI mode toggle, and a session-level execution mode (`local` / `hybrid`
+/ `remote`). After review, all three were dropped as friction without clear
+benefit. The simpler model:
+
+## Application flow
+
+### 1. First-run welcome screen (single page)
+
+On first launch (no `~/.gxy3/config.json`, or `config.llm?.apiKey` is missing),
+the renderer shows a `#welcome-overlay` full-screen form instead of the chat UI.
+Single page, two collapsed-by-default sections:
+
+- **LLM Provider** (required): provider dropdown + API key + model dropdown.
+  Reuses the field set from the existing Preferences dialog
+  (`app/src/renderer/index.html:125-154`).
+- **Galaxy server** (optional, collapsed): URL + API key. Same fields as
+  Preferences (`app/src/renderer/index.html:156-166`).
+- **Working directory** (optional, collapsed): path picker.
+
+On Save → `window.gxy3.saveConfig()` → existing IPC handler at
+`app/src/main/ipc-handlers.ts:88-103` writes `~/.gxy3/config.json` and restarts
+the agent → renderer hides the welcome overlay → shows chat.
+
+No 3-step wizard; one page, all fields visible at once with sensible defaults.
+
+### 2. Single-pane default + collapsible artifact pane
+
+There is no `chat` vs `plan` UI mode. The agent decides whether a request
+warrants a structured plan based on its complexity. The artifact pane is shown
+when there's something to show.
+
+**Initial layout**: chat fills the window. Artifact pane is hidden.
+
+**Auto-show on plan creation**: when the agent calls `analysis_plan_create`
+the bridge fires `setWidget("plan", ...)` and `setWidget("steps", ...)`. The
+renderer (`app/src/renderer/app.ts:557-602`) already handles these; we just
+add a one-time auto-reveal of the artifact pane on the first such event.
+
+**Manual collapse/expand**:
+- Button on the divider (or in the masthead) toggles `body.artifact-collapsed`
+- `Cmd/Ctrl+\` keyboard shortcut (familiar from VS Code)
+- CSS: `body.artifact-collapsed #artifact-pane { display: none }`
+- State persists to `localStorage` so the layout is remembered across launches
+
+No `/chat` or `/plan` slash commands. No masthead segmented control.
+
+### 3. Local / Remote mode toggle
+
+Two-mode toggle in the masthead, simpler than the original three-mode proposal:
+
+| Mode | Behavior |
+|------|----------|
+| **Local** | Galaxy tools NOT exposed to the agent. Everything runs locally via `run_command`. Hard kill switch. |
+| **Remote** | Galaxy tools ARE exposed. Agent decides per-job (default policy: prefer Galaxy for large jobs >5min/>10GB). User overrides in conversation. |
+
+**Masthead UI**: segmented control `[Local|Remote]` next to the model indicator.
+Persists per-session, last choice saved in `Gxy3Config.executionMode`. If Galaxy
+is not configured, Remote is disabled and locked on Local with a tooltip
+pointing to Preferences.
+
+**Tool gating**: in Local mode, `bin/gxy3.js` skips the Galaxy MCP server
+registration entirely (the block at `bin/gxy3.js:130-145`), so Galaxy tools
+are simply not in the agent's tool list. Switching modes restarts the agent
+(existing config-change behavior).
+
+**Agent awareness via system prompt** (in
+`extensions/galaxy-analyst/context.ts`):
+
+```
+## Execution mode: {{mode}}
+
+[Local mode]
+You are in Local mode. Galaxy tools are NOT available. All execution
+must be local via run_command. If the user asks for Galaxy, explain
+that Local mode is on and they can switch to Remote in the masthead.
+
+[Remote mode]
+You are in Remote mode. Both backends are available:
+- local: run_command (for quick tasks <5min, <10GB)
+- galaxy: galaxy_run_tool, galaxy_invoke_workflow ({{galaxyUrl}})
+  (for large/long-running jobs, reproducibility-critical work)
+
+Default: prefer Galaxy for jobs estimated >5min or >10GB. Use local
+otherwise. Honor user overrides ("run this locally", "use Galaxy
+for everything").
+```
+
+The agent decides per-job in Remote mode; the user gets a hard kill switch in
+Local mode.
+
+## What changes
+
+### Files to create
+
+| File | Role |
+|------|------|
+| `app/src/renderer/welcome.ts` | NEW — welcome form logic, mirrors `openPreferences` / `savePreferences` |
+
+### Files to modify
+
+| File | Change |
+|------|--------|
+| `app/src/renderer/index.html` | Add `#welcome-overlay` div with the welcome form. Add divider collapse button. |
+| `app/src/renderer/styles.css` | Welcome screen styles. `body.artifact-collapsed` rules. Collapse button hover. |
+| `app/src/renderer/app.ts` | First-run detection (no API key → show welcome). Auto-reveal artifact pane on first plan event. Collapse/expand toggle handler. `Cmd/Ctrl+\` shortcut. localStorage persistence. |
+| `extensions/galaxy-analyst/config.ts` | Add `executionMode?: "local" \| "remote"` to `Gxy3Config`. Default `"local"`. |
+| `extensions/galaxy-analyst/context.ts` | Inject execution mode + Galaxy URL into system prompt with mode-specific guidance. |
+| `bin/gxy3.js` | Conditionally register Galaxy MCP server based on `executionMode`. In Local mode, skip the `mcpConfig.mcpServers.galaxy` block. |
+| `app/src/renderer/index.html` | Add `[Local\|Remote]` segmented control in `#chat-header`. |
+| `app/src/renderer/app.ts` (additional) | Wire mode toggle: click → save config → restart agent. Disable when Galaxy unconfigured. |
+
+### Existing functions to reuse
+
+| Function | Location |
+|----------|----------|
+| `openPreferences()` | `app/src/renderer/app.ts:948` |
+| `savePreferences()` | `app/src/renderer/app.ts:977` |
+| `window.gxy3.getConfig()` / `saveConfig()` | `app/src/preload/preload.ts` |
+| `loadConfig()` / `saveConfig()` | `extensions/galaxy-analyst/config.ts:33` |
+| `formatPlanSummary()` | `extensions/galaxy-analyst/state.ts:832` |
+| `openExternalUrlWindow()` | `app/src/main/main.ts:80` |
+| `setWidget("plan", ...)` handler | `app/src/renderer/app.ts:565` |
+
+### What we are NOT building
+
+- Chat/plan UI mode toggle. No `/chat`, `/plan` slash commands. No masthead segmented control.
+- Session execution mode (`local` / `hybrid` / `remote`). No masthead dropdown.
+- 3-step welcome wizard.
+- Inline plotly charts in chat (defer; agent can write HTML to disk and use `report_result` with type=file → `openExternalUrlWindow`).
+- Multiple LLM provider keys at once (one active provider; user switches in Preferences).
+
+## Verification
+
+1. `rm ~/.gxy3/config.json && cd app && npm start` → welcome overlay appears, NOT chat
+2. Fill in Anthropic key only, leave Galaxy/working dir collapsed, click Save → welcome hides, chat fills window
+3. Type "what is FastQC?" → quick markdown answer in chat, artifact pane stays hidden
+4. Type "create a plan for QC of these FASTQs" → agent calls `analysis_plan_create`, artifact pane slides in with Plan tab populated
+5. Click divider collapse button → artifact pane hides
+6. Press `Cmd+\` → artifact pane reappears
+7. Reload app → comes up in last layout state
+8. Open Preferences, configure Galaxy URL + key, set "prefer Galaxy for large jobs" → save → restart agent
+9. Ask agent "is Galaxy configured?" → agent confirms via context injection
+10. Ask agent to "run this on Galaxy" → uses `galaxy_run_tool` from Galaxy MCP
+11. Without Galaxy configured, ask agent to "use Galaxy" → agent says it's not configured, points to Preferences
+
+## Why the chat/plan toggle and session execution mode were dropped
+
+**Chat/plan toggle**: real bioinformatics requests don't cleanly split into
+"conversational" vs "structured" — "show me read length distribution" is a quick
+question that requires running a tool. Forcing the user to classify their
+question before asking is friction the agent should absorb. Compare Claude Code,
+ChatGPT, Cursor — none make you pick a mode. The artifact pane appears
+contextually when there's a plan to show; users can collapse it like a sidebar.
+
+**Session execution mode**: per-session is the wrong granularity. "Hybrid" was
+undefined ("large jobs" — measured how?), and locking the mode at session start
+can't accommodate mid-session "actually run this on Galaxy" overrides. Treating
+Galaxy as a capability (with one default-bias setting) gives the agent
+flexibility and the user control where they want it, without a UI toggle.
+
+## Out of scope (future improvements)
+
+- Inline plotly / Vega-Lite chart rendering in chat
+- Multi-account Galaxy profiles
+- Per-message "send to Galaxy" override button
+- Welcome screen tutorial / sample analyses
+- **Plan switcher dropdown** in masthead — currently only one plan is visible
+  in the artifact pane at a time; creating a new plan replaces the view (the
+  old plan is preserved on disk as `<title>-notebook.md`). Previous plans can
+  only be brought back by asking the agent ("switch to my MRSA plan"). A
+  dropdown listing notebooks in the current working directory would let the
+  user click to switch directly. ~60 lines: `notebooks:list` IPC handler in
+  main, masthead `<select>` element, renderer wiring that on selection sends
+  a programmatic prompt to call `analysis_notebook_open`. The findNotebooks(),
+  analysis_notebook_open, and analysis_notebook_list pieces already exist in
+  `extensions/galaxy-analyst/`.
+
+- **Font upgrade** — chat currently uses Atkinson Hyperlegible (accessibility-
+  focused, prioritizes letter distinction over visual rhythm; reads as uneven).
+  Replace with Inter (body) + JetBrains Mono (code blocks, tool output, shell
+  panel). Inter is geometric, neutral, designed for screens; pairs well with
+  the dark Galaxy palette. JetBrains Mono has tall x-height and ligatures
+  (`=>`, `!=`, `>=`) that improve readability of code at small sizes.
+  Implementation: download woff2 files (Inter Regular/Medium/SemiBold/Bold,
+  JetBrains Mono Regular/Bold) into `app/src/renderer/assets/fonts/`, add
+  `@font-face` rules to a new `app/src/renderer/fonts.css`, import from
+  `index.html`, update two CSS variables in `styles.css` (`--font` and
+  `--font-sans`). ~15 minutes. Alternative pairings: IBM Plex Sans + Mono
+  (humanist, warmer), Geist + Geist Mono (sharper, more compact).
+
+- **Missing spaces between text blocks after tool calls** — when the agent
+  produces text, calls a tool, then produces more text, the chat-panel
+  concatenates the two text blocks without a separator. Example:
+  `"...find its associated sequencing data.Found the data!"` — no space
+  between `data.` and `Found`. Root cause: in `chat-panel.ts` the
+  `appendDelta()` path keeps adding to the current message; when a tool
+  call interrupts and a new `text_start` fires, the renderer either
+  starts a new message (losing visual continuity) or continues the same
+  message without inserting whitespace. Fix options:
+    1. In `chat-panel.ts`, on `text_start` after a tool call (within the
+       same assistant message), prepend `\n\n` to the new text block.
+    2. Track `lastWasToolCall` in the message state; if true, insert a
+       separator before the next text delta.
+    3. Have the extension tell the agent in the system prompt to always
+       begin post-tool text with a space or newline. Less reliable — the
+       LLM may forget.
+  Recommended: option 1 or 2 (renderer-side). ~10 lines in
+  `app/src/renderer/chat/chat-panel.ts`.
+
+- **Step kill button (×) on DAG nodes** — let the user cancel a running step
+  (and its descendants) directly from the Steps tab without going through
+  the agent. Add a small × button to each `StepNode` in
+  `app/src/renderer/artifacts/step-graph-react.tsx`, visible on hover or
+  always for `in_progress` steps. Click → confirm dialog → kill.
+
+  **Cascade logic** (shared): walk `dependsOn` in reverse from the killed
+  step to find all dependents transitively. Mark them `skipped`. Don't touch
+  sibling branches.
+
+  **Two implementation paths:**
+
+  - *Path A — LLM-mediated (MVP, ~25 lines).* On click, send a programmatic
+    prompt: `"Cancel step <name> (id: <id>) and mark all its dependents as
+    skipped"`. Agent calls `cancel_command` + `analysis_plan_update_step` in
+    its next turn. Pros: minimal code, no new IPC, no extension changes.
+    Cons: LLM round-trip adds 2-5s latency; relies on the agent to correctly
+    compute the cascade.
+
+  - *Path B — Direct kill with step→PID tracking (~120 lines).* Extension
+    tracks `stepId → pid[]` when `run_command` is invoked while a step is
+    `in_progress`. New IPC `step:kill {stepId, cascade: true}` → main →
+    agent stdin (new JSON-RPC method) → extension kills PID, walks the
+    dependsOn graph, marks statuses, fires `onPlanChange`. DAG updates
+    immediately via the existing bridge. Pros: instant and reliable, no
+    LLM round-trip. Cons: requires new IPC method and step→PID association
+    in the extension.
+
+  **Recommendation**: ship Path A first. Upgrade to Path B if the LLM
+  round-trip feels laggy in practice.
+
+- **Process monitor: full command line** — the monitor currently truncates
+  the command to 80 chars in `proc-monitor.ts` (`MAX_COMMAND_LEN = 80`) and
+  uses `ps -o comm=` which only shows the program name, not the full argv.
+  Show the complete command line so the user can see what arguments were
+  passed (useful for debugging which wget URL is running, which samtools
+  subcommand, etc.). Two changes:
+    1. Switch `ps` format from `comm=` to `args=` (or `command=`) to get
+       the full argv including arguments.
+    2. Drop the 80-char truncation in `proc-monitor.ts` and instead let
+       the renderer truncate visually via CSS (`.col-cmd` already has
+       `text-overflow: ellipsis`). Keep the full command in the `title`
+       attribute so hovering shows the complete string.
+    3. Optional: make the command column expandable (click to wrap) or
+       add a "show full" toggle in the monitor header.
+  ~5-line change in `proc-monitor.ts` + CSS tweak. 5 minutes.
+
+- **Process monitor pane** — small collapsible strip showing live stats for
+  every command currently spawned by the agent (backgrounded or foreground).
+  Fields: PID, command (truncated), CPU %, memory (RSS + %), runtime,
+  thread count. Data source: main process walks the agent process tree
+  (`pgrep --parent <agent_pid>` recursively, or `ps --forest -p <agent_pid>`)
+  every 2-3 seconds, parses `ps -o pid,pcpu,pmem,rss,etime,nlwp,comm`,
+  emits `proc:update` IPC events. Renderer subscribes and renders a table.
+  No extension cooperation needed — main already knows the agent PID from
+  `AgentManager`. Stop polling when the process list is empty to save CPU.
+
+  Placement options: strip at the top of the artifact pane, or bottom of
+  the chat pane (mirroring the existing `#agent-shell` pattern). Collapsible.
+
+  Files: `app/src/main/proc-monitor.ts` (new, ~50 lines), `app/src/renderer/
+  proc-monitor-panel.ts` (new, ~40 lines), HTML+CSS additions (~30 lines).
+  Total ~120 lines, 1-2 hours.
+
+  Platform notes: Linux+macOS share the `ps -o` format. Windows (native)
+  would need `wmic` or `tasklist` — skip for now since Windows users run
+  via WSL2 which is Linux. RSS is KB on Linux, blocks on macOS; add a
+  platform check.
+
+- **Ask-while-running ("/btw" pattern)** — let the user check job status
+  without waiting for the current turn to finish. Two complementary pieces:
+
+    1. **Default to background mode for long jobs.** Update the agent's
+       system prompt (in `extensions/galaxy-analyst/context.ts`) to instruct
+       the LLM: "For commands you estimate will run >30 seconds, use
+       background mode. Return the process ID, end the turn, and let the
+       user check status with check_process when they ask." This means
+       `streaming` becomes false quickly and the user can interject any
+       time. ~10 lines (prompt edit only — `run_command` background mode
+       already exists).
+
+    2. **Queue-while-streaming UX.** When the agent is mid-turn and the
+       user types a message, stash it instead of dropping it. On `agent_end`,
+       auto-submit the queued message. Add `pendingMessage: string \| null`
+       to renderer state, modify `submit()` to check streaming, modify the
+       `agent_end` handler to flush. Show a "queued ↓" indicator near the
+       send button so the user knows it's waiting. ~30 lines in
+       `app/src/renderer/app.ts`.
+
+  Together these give a Claude-Code-like "/btw" feel without needing a
+  side-channel worker or parallel agent runs. True parallel side-channel
+  queries (Case 3 in the design discussion) are out of scope — Pi.dev runs
+  one turn at a time.
+
+- **Two-model configuration** (planner / executor split) — most cost in the
+  app comes from creating plans (reasoning-heavy) versus executing them
+  (mostly mechanical: call tool → check result → update step). Today the
+  user can switch models manually with `/model sonnet` after the plan is
+  approved, but it's a manual step. Add to Preferences:
+    - `llm.plannerModel` (default: claude-opus-4-6) — used during plan
+      creation / refinement
+    - `llm.executorModel` (default: claude-sonnet-4-6) — used after the
+      plan is approved or when "Execute" is clicked
+  Auto-switch trigger: when the user clicks the Execute button (or when the
+  agent transitions a step from `pending` → `in_progress` for the first
+  time after plan approval), call the existing `switchModelByAlias()` flow
+  with the executor model. The `--continue` flag preserves chat history
+  across the switch. The user can override with `/model <name>` at any time.
+  Cost impact: ~5x reduction on execution turns (Opus $15/$75 → Sonnet
+  $3/$15). ~40 lines: two model fields in Preferences, one config check
+  in the execute-plan button handler, one call to `switchModelByAlias`.
+
+---
+
 # Implementation Plan
 
 ## Vision

@@ -161,6 +161,146 @@ modelIndicatorEl.addEventListener("click", () => {
   void openPreferences();
 });
 
+// ── Artifact pane collapse/expand ────────────────────────────────────────────
+
+const ARTIFACT_COLLAPSED_KEY = "gxy3.artifactCollapsed";
+const artifactToggleBtn = document.getElementById("artifact-toggle")!;
+
+function setArtifactCollapsed(collapsed: boolean): void {
+  document.body.classList.toggle("artifact-collapsed", collapsed);
+  localStorage.setItem(ARTIFACT_COLLAPSED_KEY, collapsed ? "1" : "0");
+}
+
+// Default: collapsed (single-pane chat). Auto-reveals on first plan event.
+const savedCollapsed = localStorage.getItem(ARTIFACT_COLLAPSED_KEY);
+setArtifactCollapsed(savedCollapsed === null ? true : savedCollapsed === "1");
+
+artifactToggleBtn.addEventListener("click", () => {
+  setArtifactCollapsed(!document.body.classList.contains("artifact-collapsed"));
+});
+
+// Cmd/Ctrl+\ keyboard shortcut
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
+    e.preventDefault();
+    setArtifactCollapsed(!document.body.classList.contains("artifact-collapsed"));
+  }
+});
+
+// ── Execution mode toggle (Local / Remote) ───────────────────────────────────
+
+const execModeToggle = document.getElementById("exec-mode-toggle")!;
+const execModeButtons = execModeToggle.querySelectorAll<HTMLButtonElement>("button");
+
+function applyExecModeUI(mode: "local" | "remote", galaxyConfigured: boolean): void {
+  execModeButtons.forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+    if (b.dataset.mode === "remote") {
+      b.disabled = !galaxyConfigured;
+      b.title = galaxyConfigured ? "Remote: agent can use Galaxy" : "Configure Galaxy in Preferences to enable Remote mode";
+    } else {
+      b.title = "Local: all jobs run locally";
+    }
+  });
+}
+
+async function loadExecModeFromConfig(): Promise<void> {
+  const cfg = (await window.gxy3.getConfig()) as Record<string, unknown>;
+  const mode = (cfg.executionMode as "local" | "remote") || "local";
+  const galaxy = cfg.galaxy as { active?: string; profiles?: Record<string, unknown> } | undefined;
+  const galaxyConfigured = !!(galaxy?.active && galaxy?.profiles?.[galaxy.active]);
+  applyExecModeUI(mode, galaxyConfigured);
+}
+void loadExecModeFromConfig();
+
+execModeButtons.forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    const mode = btn.dataset.mode as "local" | "remote";
+    if (btn.classList.contains("active")) return;
+
+    // Save mode to config and restart agent
+    const cfg = (await window.gxy3.getConfig()) as Record<string, unknown>;
+    cfg.executionMode = mode;
+    await window.gxy3.saveConfig(cfg);
+    chat.addInfoMessage(`<i>Execution mode → <b>${mode}</b>. Agent restarting…</i>`);
+    await loadExecModeFromConfig();
+  });
+});
+
+// ── First-run welcome screen ─────────────────────────────────────────────────
+
+const welcomeOverlay = document.getElementById("welcome-overlay")!;
+const welcomeProvider = document.getElementById("welcome-provider") as HTMLSelectElement;
+const welcomeModel = document.getElementById("welcome-model") as HTMLSelectElement;
+const welcomeApiKey = document.getElementById("welcome-api-key") as HTMLInputElement;
+const welcomeGalaxyUrl = document.getElementById("welcome-galaxy-url") as HTMLInputElement;
+const welcomeGalaxyKey = document.getElementById("welcome-galaxy-key") as HTMLInputElement;
+const welcomeCwd = document.getElementById("welcome-cwd") as HTMLInputElement;
+const welcomeBrowseCwd = document.getElementById("welcome-browse-cwd")!;
+const welcomeSave = document.getElementById("welcome-save")!;
+const welcomeError = document.getElementById("welcome-error")!;
+
+function populateWelcomeModels(provider: string): void {
+  welcomeModel.innerHTML = "";
+  const models = MODELS_BY_PROVIDER[provider] || [];
+  for (const m of models) {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    opt.textContent = m.label;
+    welcomeModel.appendChild(opt);
+  }
+}
+welcomeProvider.addEventListener("change", () => populateWelcomeModels(welcomeProvider.value));
+
+welcomeBrowseCwd.addEventListener("click", async () => {
+  const dir = await window.gxy3.selectDirectory();
+  if (dir) welcomeCwd.value = dir;
+});
+
+welcomeSave.addEventListener("click", async () => {
+  welcomeError.textContent = "";
+  const apiKey = welcomeApiKey.value.trim();
+  if (!apiKey) {
+    welcomeError.textContent = "API key is required";
+    return;
+  }
+
+  const cfg: Record<string, unknown> = {
+    llm: {
+      provider: welcomeProvider.value,
+      model: welcomeModel.value,
+      apiKey,
+    },
+    executionMode: "local",
+  };
+
+  const galaxyUrl = welcomeGalaxyUrl.value.trim();
+  const galaxyKey = welcomeGalaxyKey.value.trim();
+  if (galaxyUrl && galaxyKey) {
+    cfg.galaxy = {
+      active: "default",
+      profiles: { default: { url: galaxyUrl, apiKey: galaxyKey } },
+    };
+  }
+
+  const cwd = welcomeCwd.value.trim();
+  if (cwd) cfg.defaultCwd = cwd;
+
+  await window.gxy3.saveConfig(cfg);
+  welcomeOverlay.classList.add("hidden");
+  await loadExecModeFromConfig();
+});
+
+async function checkFirstRun(): Promise<void> {
+  const cfg = (await window.gxy3.getConfig()) as { llm?: { apiKey?: string } };
+  if (!cfg.llm?.apiKey) {
+    populateWelcomeModels(welcomeProvider.value);
+    welcomeOverlay.classList.remove("hidden");
+  }
+}
+void checkFirstRun();
+
 function captureUsage(event: Record<string, unknown>): void {
   // message_start carries model info; message updates carry rolling usage
   const msg = event.message as Record<string, unknown> | undefined;
@@ -236,17 +376,40 @@ refreshCwd();
 
 // ── Chat Input ────────────────────────────────────────────────────────────────
 
+/** Queued message — stashed when user submits while agent is streaming. */
+let pendingMessage: string | null = null;
+
+function updateQueuedIndicator(): void {
+  const indicator = document.getElementById("queued-indicator");
+  if (!indicator) return;
+  if (pendingMessage) {
+    indicator.classList.remove("hidden");
+    indicator.title = `Queued: ${pendingMessage.slice(0, 100)}${pendingMessage.length > 100 ? "…" : ""}`;
+  } else {
+    indicator.classList.add("hidden");
+  }
+}
+
 function submit(): void {
   const text = inputEl.value.trim();
-  if (!text || streaming) return;
+  if (!text) return;
 
-  // Slash commands — handled locally, no LLM round-trip
+  // Slash commands — handled locally, no LLM round-trip (allowed even while streaming)
   if (text.startsWith("/")) {
     if (handleSlashCommand(text)) {
       inputEl.value = "";
       inputEl.style.height = "auto";
       return;
     }
+  }
+
+  // If the agent is mid-turn, queue the message and flush when agent_end fires.
+  if (streaming) {
+    pendingMessage = text;
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    updateQueuedIndicator();
+    return;
   }
 
   chat.addUserMessage(text);
@@ -256,6 +419,22 @@ function submit(): void {
   window.gxy3.prompt(text);
   inputEl.value = "";
   inputEl.style.height = "auto";
+}
+
+/** Flush any queued message after the current turn ends. */
+function flushPendingMessage(): void {
+  if (!pendingMessage) return;
+  const text = pendingMessage;
+  pendingMessage = null;
+  updateQueuedIndicator();
+  // Use requestAnimationFrame so the UI updates before we start the next turn
+  requestAnimationFrame(() => {
+    chat.addUserMessage(text);
+    chat.showThinking();
+    statusBadge.textContent = "thinking...";
+    statusBadge.className = "status-badge thinking";
+    window.gxy3.prompt(text);
+  });
 }
 
 /**
@@ -287,23 +466,50 @@ function handleSlashCommand(text: string): boolean {
     return true;
   }
 
+  // pi-galaxy-analyst commands — pass through to agent
+  if (cmd === "plan" || cmd === "status" || cmd === "notebook" || cmd === "decisions" || cmd === "profiles") {
+    chat.addUserMessage(text);
+    window.gxy3.prompt(`/${cmd}`);
+    return true;
+  }
+
+  if (cmd === "connect") {
+    void openPreferences();
+    return true;
+  }
+
+  if (cmd === "review") {
+    runReviewParams();
+    return true;
+  }
+
+  if (cmd === "test") {
+    runTestExecution();
+    return true;
+  }
+
+  if (cmd === "execute" || cmd === "run") {
+    runRealExecution();
+    return true;
+  }
+
   if (cmd === "help") {
     chat.addUserMessage(text);
     chat.addInfoMessage(
       `<h3>Slash commands</h3>` +
       `<ul>` +
-      `<li><code>/model &lt;name&gt;</code> — switch LLM model (e.g. <code>/model sonnet</code>, <code>/model qwen3-coder</code>)</li>` +
-      `<li><code>/new</code> — start a fresh session (clears chat, plan, steps, results + agent context)</li>` +
+      `<li><code>/model &lt;name&gt;</code> — switch LLM model</li>` +
+      `<li><code>/new</code> — start a fresh session</li>` +
+      `<li><code>/review</code> — review plan parameters before execution</li>` +
+      `<li><code>/test</code> — run the plan on minimal/test data</li>` +
+      `<li><code>/execute</code> (alias <code>/run</code>) — execute the plan on real data</li>` +
+      `<li><code>/plan</code> — show current plan summary</li>` +
+      `<li><code>/status</code> — show Galaxy connection status</li>` +
+      `<li><code>/notebook</code> — show notebook info</li>` +
+      `<li><code>/decisions</code> — show decision log</li>` +
+      `<li><code>/connect</code> — open Galaxy connection settings</li>` +
       `<li><code>/help</code> — show this help</li>` +
-      `</ul>` +
-      `<h3>Plan examples</h3>` +
-      `<p>To create an analysis plan, ask gxy3 explicitly:</p>` +
-      `<div class="help-example">` +
-      `"Create a plan for analysis data from the following manuscript ` +
-      `https://doi.org/10.1093/jac/dkac154. Specifically, I want to map ` +
-      `datasets generated by these authors against latest MRSA genomes ` +
-      `to call sequence variants"` +
-      `</div>`
+      `</ul>`
     );
     return true;
   }
@@ -319,6 +525,22 @@ async function confirmAndResetSession(): Promise<void> {
 }
 
 /** Wipe chat + artifacts + restart the agent without --continue (fresh Pi.dev session). */
+async function showCwdWelcome(): Promise<void> {
+  let cwd = "~";
+  try {
+    cwd = await window.gxy3.getCwd();
+  } catch { /* getCwd unavailable */ }
+  chat.addInfoMessage(
+    `<b>Current working directory:</b> <code>${cwd.replace(/</g, "&lt;")}</code><br>` +
+    `For a new project you may want to <a href="#" id="switch-dir-link">switch to a new directory</a> to keep everything clean.`
+  );
+  // Wire the link to the existing cwd-change button handler
+  document.getElementById("switch-dir-link")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    (document.getElementById("cwd-change") as HTMLButtonElement | null)?.click();
+  });
+}
+
 async function resetSession(): Promise<void> {
   chat.clear();
   artifacts.clear();
@@ -334,7 +556,27 @@ async function resetSession(): Promise<void> {
   renderUsage();
 
   await window.gxy3.resetSession();
-  chat.addErrorMessage("Started fresh session.");
+
+  // Fresh session has no greeting turn, so agent_end never fires.
+  // Clear streaming state explicitly so the input is usable immediately.
+  streaming = false;
+  hasShownPlanOnce = false;
+  sendBtn.classList.remove("hidden");
+  abortBtn.classList.add("hidden");
+  statusBadge.textContent = "Ready";
+  statusBadge.className = "status-badge";
+
+  chat.addInfoMessage("<i>Started fresh session.</i>");
+
+  // Open artifact pane on Notebook tab so the fresh session starts visible.
+  setArtifactCollapsed(false);
+  switchTab("results");
+
+  // Reset startup-welcome flag so the onAgentStatus handler re-runs
+  // the cwd welcome when the new agent reports "running".
+  hasShownStartupWelcome = false;
+
+  await showCwdWelcome();
 }
 
 /** Resolve a model alias across ALL providers and switch + restart agent. */
@@ -536,6 +778,7 @@ window.gxy3.onAgentEvent((event) => {
       // Safety: clear any stuck button busy states if the turn ends without the
       // expected completion event arriving
       clearButtonBusy(reviewParamsBtn as HTMLButtonElement);
+      flushPendingMessage();
       break;
 
     case "error": {
@@ -547,6 +790,7 @@ window.gxy3.onAgentEvent((event) => {
       statusBadge.className = "status-badge error";
       sendBtn.classList.remove("hidden");
       abortBtn.classList.add("hidden");
+      // Don't flush queued message on error — let the user decide what to do
       break;
     }
   }
@@ -565,8 +809,9 @@ window.gxy3.onUiRequest((request) => {
     if (key === "plan" && lines) {
       console.log("[gxy3-ui] plan widget received, lines:", lines.length);
       artifacts.setPlanText(lines.join("\n"));
-      // First plan: switch to it. Updates: just mark new and let user navigate.
+      // First plan: auto-reveal artifact pane and switch to Plan tab.
       if (!hasShownPlanOnce) {
+        setArtifactCollapsed(false);
         switchTab("plan");
         hasShownPlanOnce = true;
       } else {
@@ -590,6 +835,18 @@ window.gxy3.onUiRequest((request) => {
         artifacts.addResultBlock(block);
         markTabNew("results");
       } catch { /* ignore parse errors */ }
+    }
+
+    // pi-galaxy-analyst text widgets
+    if (key === "plan-view" && lines) {
+      // Same as "plan" — route to Plan tab
+      artifacts.setPlanText(lines.join("\n"));
+      if (!hasShownPlanOnce) { switchTab("plan"); hasShownPlanOnce = true; }
+      else { markTabNew("plan"); }
+    }
+
+    if ((key === "status-view" || key === "decisions-view" || key === "notebook-view" || key === "profiles-view") && lines) {
+      chat.addInfoMessage("<pre>" + lines.join("\n").replace(/</g, "&lt;") + "</pre>");
     }
 
     // Phase 4: parameter form — replaces plan view
@@ -621,9 +878,19 @@ function switchTab(name: string): void {
 
 // ── Agent Status ──────────────────────────────────────────────────────────────
 
+let hasShownStartupWelcome = false;
 window.gxy3.onAgentStatus((status, msg) => {
   statusBadge.textContent = msg || status;
   statusBadge.className = "status-badge " + status;
+
+  // Show cwd welcome once, after the first successful agent start.
+  // Also open the artifact pane on the Notebook tab so the user sees it.
+  if (status === "running" && !hasShownStartupWelcome) {
+    hasShownStartupWelcome = true;
+    setArtifactCollapsed(false);
+    switchTab("results");
+    void showCwdWelcome();
+  }
 });
 
 // ── Draggable Divider ─────────────────────────────────────────────────────────
@@ -688,104 +955,12 @@ tabs.forEach((tab) => {
   });
 });
 
-// ── Plan Actions ──────────────────────────────────────────────────────────────
+// ── Plan Actions (slash commands) ────────────────────────────────────────────
 
-const reviewParamsBtn = document.getElementById("review-params-btn")!;
-const planTestRunBtn = document.getElementById("plan-test-run-btn")!;
-const planExecuteBtn = document.getElementById("plan-execute-btn")!;
+/** No-op helpers kept so existing call sites for clearButtonBusy don't break. */
+function clearButtonBusy(_btn: HTMLButtonElement): void { /* no-op */ }
+
 const paramsBackBtn = document.getElementById("params-back-btn")!;
-const testRunBtn = document.getElementById("test-run-btn")!;
-const executeWithParamsBtn = document.getElementById("execute-with-params-btn")!;
-
-reviewParamsBtn.addEventListener("click", () => {
-  const text = artifacts.getPlanText();
-  if (!text) return;
-
-  // Visual feedback: spinner + disabled button until the parameter form arrives
-  setButtonBusy(reviewParamsBtn as HTMLButtonElement, "Analyzing…");
-  chat.addUserMessage("Review parameters");
-  chat.showThinking();
-  statusBadge.textContent = "analyzing parameters…";
-  statusBadge.className = "status-badge thinking";
-  shell.append("▸ Analyzing plan for critical parameters…", "info");
-
-  window.gxy3.prompt(
-    `The user clicked "Review parameters". Analyze every tool in the current plan, ` +
-    `identify the CRITICAL biological parameters (hide thread counts, paths, flags, verbose), ` +
-    `and call analyze_plan_parameters with a consolidated form spec grouped by biology concept ` +
-    `(not by tool). Include biologist-friendly help text for every parameter. ` +
-    `Use defaults appropriate for the organism/analysis type. ` +
-    `Plan:\n${text}`
-  );
-});
-
-/** Put a button into a "busy" state with a spinner and disabled interaction. */
-function setButtonBusy(btn: HTMLButtonElement, label: string): void {
-  btn.dataset.originalText = btn.textContent || "";
-  btn.disabled = true;
-  btn.classList.add("busy");
-  btn.innerHTML = `<span class="btn-spinner"></span>${label}`;
-}
-
-/** Restore a button from its busy state. */
-function clearButtonBusy(btn: HTMLButtonElement): void {
-  if (btn.dataset.originalText !== undefined) {
-    btn.textContent = btn.dataset.originalText;
-    delete btn.dataset.originalText;
-  }
-  btn.disabled = false;
-  btn.classList.remove("busy");
-}
-
-planTestRunBtn.addEventListener("click", () => {
-  const text = artifacts.getPlanText();
-  if (!text) return;
-
-  const saved = artifacts.getSavedParameters();
-  const values = saved || {};
-
-  artifacts.clearResults();
-  chat.addUserMessage("Test run");
-  artifacts.setParametersDisabled(true);
-
-  window.gxy3.prompt(
-    `The user clicked "Test run (minimal data)". Configured parameters:\n` +
-    `${JSON.stringify(values, null, 2)}\n\n` +
-    `Sequence of calls (in order):\n` +
-    `1. reset_plan_steps  — clear stale state\n` +
-    `2. generate_test_data  — subsample real files if they exist, otherwise synthesize\n` +
-    `3. For each step: update_step(in_progress, with description reflecting test mode) → ` +
-    `run_command → update_step(completed, with result) → report_result\n\n` +
-    `In test mode, update each step's description to reflect the smaller scope ` +
-    `(e.g., 'Downloading 1 test sample' not '270 samples'). ` +
-    `Tag results as 'TEST RUN' in the markdown. ` +
-    `Do NOT call clear_test_mode — leave test mode on so the user can review. ` +
-    `NO chat narration — let the DAG and Results tab show progress.\n\nPlan:\n${text}`
-  );
-});
-
-planExecuteBtn.addEventListener("click", () => {
-  const text = artifacts.getPlanText();
-  if (!text) return;
-
-  const saved = artifacts.getSavedParameters();
-  const values = saved || {};
-
-  artifacts.clearResults();
-  chat.addUserMessage("Execute with configured parameters");
-  artifacts.setParametersDisabled(true);
-
-  window.gxy3.prompt(
-    `The user clicked "Execute (real data)". Configured parameters:\n` +
-    `${JSON.stringify(values, null, 2)}\n\n` +
-    `Sequence of calls (in order):\n` +
-    `1. If test mode is active, clear_test_mode  — restore real paths\n` +
-    `2. reset_plan_steps  — clear stale state from any previous run\n` +
-    `3. For each step: update_step(in_progress) → run_command → update_step(completed)\n\n` +
-    `NO chat narration — let the DAG and Results tab show progress.\n\nPlan:\n${text}`
-  );
-});
-
 paramsBackBtn.addEventListener("click", () => {
   artifacts.hideParameters();
 });
@@ -797,18 +972,40 @@ paramsSaveBtn.addEventListener("click", () => {
   chat.addInfoMessage("Parameters saved.");
 });
 
-testRunBtn.addEventListener("click", () => {
-  artifacts.saveParameters();
-  const values = artifacts.getParameterValues();
+function runReviewParams(): void {
   const text = artifacts.getPlanText();
-
-  artifacts.clearResults();
-  chat.addUserMessage("Test run");
-  artifacts.setParametersDisabled(true);
-
+  if (!text) {
+    chat.addErrorMessage("No plan to review yet.");
+    return;
+  }
+  chat.addUserMessage("/review");
+  chat.showThinking();
+  statusBadge.textContent = "analyzing parameters…";
+  statusBadge.className = "status-badge thinking";
+  shell.append("▸ Analyzing plan for critical parameters…", "info");
   window.gxy3.prompt(
-    `The user clicked "Test run (minimal data)". Configured parameters:\n` +
-    `${JSON.stringify(values, null, 2)}\n\n` +
+    `The user typed /review. Analyze every tool in the current plan, ` +
+    `identify the CRITICAL biological parameters (hide thread counts, paths, flags, verbose), ` +
+    `and call analyze_plan_parameters with a consolidated form spec grouped by biology concept ` +
+    `(not by tool). Include biologist-friendly help text for every parameter. ` +
+    `Use defaults appropriate for the organism/analysis type. ` +
+    `Plan:\n${text}`
+  );
+}
+
+function runTestExecution(): void {
+  const text = artifacts.getPlanText();
+  if (!text) {
+    chat.addErrorMessage("No plan to test yet.");
+    return;
+  }
+  const saved = artifacts.getSavedParameters() || {};
+  artifacts.clearResults();
+  chat.addUserMessage("/test");
+  artifacts.setParametersDisabled(true);
+  window.gxy3.prompt(
+    `The user typed /test. Configured parameters:\n` +
+    `${JSON.stringify(saved, null, 2)}\n\n` +
     `Sequence of calls (in order):\n` +
     `1. reset_plan_steps  — clear stale state\n` +
     `2. generate_test_data  — subsample real files if they exist, otherwise synthesize\n` +
@@ -818,29 +1015,30 @@ testRunBtn.addEventListener("click", () => {
     `(e.g., 'Downloading 1 test sample' not '270 samples'). ` +
     `Tag results as 'TEST RUN' in the markdown. ` +
     `Do NOT call clear_test_mode — leave test mode on so the user can review. ` +
-    `NO chat narration — let the DAG and Results tab show progress.\n\nPlan:\n${text}`
+    `NO chat narration — let the DAG and Notebook tab show progress.\n\nPlan:\n${text}`
   );
-});
+}
 
-executeWithParamsBtn.addEventListener("click", () => {
-  artifacts.saveParameters();
-  const values = artifacts.getParameterValues();
+function runRealExecution(): void {
   const text = artifacts.getPlanText();
-
+  if (!text) {
+    chat.addErrorMessage("No plan to execute yet.");
+    return;
+  }
+  const saved = artifacts.getSavedParameters() || {};
   artifacts.clearResults();
-  chat.addUserMessage("Execute with configured parameters");
+  chat.addUserMessage("/execute");
   artifacts.setParametersDisabled(true);
-
   window.gxy3.prompt(
-    `The user clicked "Execute (real data)". Configured parameters:\n` +
-    `${JSON.stringify(values, null, 2)}\n\n` +
+    `The user typed /execute. Configured parameters:\n` +
+    `${JSON.stringify(saved, null, 2)}\n\n` +
     `Sequence of calls (in order):\n` +
     `1. If test mode is active, clear_test_mode  — restore real paths\n` +
     `2. reset_plan_steps  — clear stale state from any previous run\n` +
     `3. For each step: update_step(in_progress) → run_command → update_step(completed)\n\n` +
-    `NO chat narration — let the DAG and Results tab show progress.\n\nPlan:\n${text}`
+    `NO chat narration — let the DAG and Notebook tab show progress.\n\nPlan:\n${text}`
   );
-});
+}
 
 // ── Preferences ──────────────────────────────────────────────────────────────
 
@@ -1160,6 +1358,84 @@ function toggleShell(show?: boolean): void {
 shellToggleBtn.addEventListener("click", () => toggleShell());
 shellCloseBtn.addEventListener("click", () => toggleShell(false));
 shellClearBtn.addEventListener("click", () => shell.clear());
+
+// ── Process monitor ──────────────────────────────────────────────────────────
+
+interface ProcInfo {
+  pid: number;
+  ppid: number;
+  pcpu: number;
+  pmem: number;
+  rss: number;
+  etime: string;
+  nlwp: number;
+  command: string;
+}
+
+const procMonitorEl = document.getElementById("proc-monitor")!;
+const procMonitorToggleBtn = document.getElementById("proc-monitor-toggle")!;
+const procMonitorCloseBtn = document.getElementById("proc-monitor-close")!;
+const procMonitorCountEl = document.getElementById("proc-monitor-count")!;
+const procMonitorRowsEl = document.getElementById("proc-monitor-rows")!;
+
+function toggleProcMonitor(show?: boolean): void {
+  const willShow = show ?? procMonitorEl.classList.contains("hidden");
+  procMonitorEl.classList.toggle("hidden", !willShow);
+  procMonitorToggleBtn.classList.toggle("active", willShow);
+  procMonitorToggleBtn.textContent = willShow ? "▾ procs" : "▸ procs";
+}
+
+procMonitorToggleBtn.addEventListener("click", () => toggleProcMonitor());
+procMonitorCloseBtn.addEventListener("click", () => toggleProcMonitor(false));
+
+function formatRss(kb: number): string {
+  if (kb < 1024) return `${kb}K`;
+  if (kb < 1024 * 1024) return `${(kb / 1024).toFixed(0)}M`;
+  return `${(kb / (1024 * 1024)).toFixed(1)}G`;
+}
+
+function renderProcs(procs: ProcInfo[]): void {
+  procMonitorCountEl.textContent = String(procs.length);
+
+  // Auto-show the panel when a process appears, if it was hidden at zero
+  if (procs.length > 0 && procMonitorEl.classList.contains("hidden") && !procMonitorUserHidden) {
+    toggleProcMonitor(true);
+  }
+
+  if (procs.length === 0) {
+    procMonitorRowsEl.innerHTML = '<tr><td colspan="6" class="empty-procs">No subprocesses running</td></tr>';
+    return;
+  }
+
+  // Sort by CPU descending
+  const sorted = [...procs].sort((a, b) => b.pcpu - a.pcpu);
+  procMonitorRowsEl.innerHTML = sorted.map((p) => `
+    <tr>
+      <td class="col-num">${p.pid}</td>
+      <td class="col-num">${p.pcpu.toFixed(1)}</td>
+      <td class="col-num">${p.pmem.toFixed(1)}</td>
+      <td class="col-num">${formatRss(p.rss)}</td>
+      <td class="col-num">${p.etime}</td>
+      <td class="col-cmd" title="${escapeAttr(p.command)}">${escapeHtml(p.command)}</td>
+    </tr>
+  `).join("");
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/"/g, "&quot;");
+}
+
+// Remember if user explicitly closed the panel so we don't keep re-opening it
+let procMonitorUserHidden = false;
+procMonitorCloseBtn.addEventListener("click", () => { procMonitorUserHidden = true; });
+procMonitorToggleBtn.addEventListener("click", () => { procMonitorUserHidden = procMonitorEl.classList.contains("hidden"); });
+
+window.gxy3.onProcUpdate((procs) => {
+  renderProcs(procs as ProcInfo[]);
+});
 
 // ── Focus input on load ───────────────────────────────────────────────────────
 inputEl.focus();

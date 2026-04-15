@@ -384,11 +384,22 @@ function updateQueuedIndicator(): void {
   if (!indicator) return;
   if (pendingMessage) {
     indicator.classList.remove("hidden");
-    indicator.title = `Queued: ${pendingMessage.slice(0, 100)}${pendingMessage.length > 100 ? "…" : ""}`;
+    indicator.title = `Queued: ${pendingMessage.slice(0, 100)}${pendingMessage.length > 100 ? "…" : ""} (click to cancel)`;
   } else {
     indicator.classList.add("hidden");
   }
 }
+
+/** Clear any queued message without sending it. */
+function clearPendingMessage(): void {
+  pendingMessage = null;
+  updateQueuedIndicator();
+}
+
+// Click the indicator to cancel the queued message
+document.getElementById("queued-indicator")?.addEventListener("click", () => {
+  clearPendingMessage();
+});
 
 function submit(): void {
   const text = inputEl.value.trim();
@@ -544,6 +555,7 @@ async function showCwdWelcome(): Promise<void> {
 async function resetSession(): Promise<void> {
   chat.clear();
   artifacts.clear();
+  clearPendingMessage();
   // Reset usage counters
   sessionUsage.input = 0;
   sessionUsage.output = 0;
@@ -667,11 +679,13 @@ sendBtn.addEventListener("click", submit);
 
 abortBtn.addEventListener("click", () => {
   window.gxy3.abort();
+  clearPendingMessage();
 });
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && streaming) {
     window.gxy3.abort();
+    clearPendingMessage();
   }
 });
 
@@ -777,7 +791,6 @@ window.gxy3.onAgentEvent((event) => {
       chat.finishAssistantMessage();
       // Safety: clear any stuck button busy states if the turn ends without the
       // expected completion event arriving
-      clearButtonBusy(reviewParamsBtn as HTMLButtonElement);
       flushPendingMessage();
       break;
 
@@ -790,7 +803,8 @@ window.gxy3.onAgentEvent((event) => {
       statusBadge.className = "status-badge error";
       sendBtn.classList.remove("hidden");
       abortBtn.classList.add("hidden");
-      // Don't flush queued message on error — let the user decide what to do
+      // Clear any queued message on error so the indicator doesn't get stuck
+      clearPendingMessage();
       break;
     }
   }
@@ -857,13 +871,11 @@ window.gxy3.onUiRequest((request) => {
         console.log("[gxy3-ui] parsed spec:", spec.title, spec.groups?.length, "groups");
         artifacts.showParameters(spec);
         switchTab("plan");
-        clearButtonBusy(reviewParamsBtn as HTMLButtonElement);
-        shell.append(`  ✓ Parameter form ready (${spec.groups?.length ?? 0} groups)`, "tool-end");
+          shell.append(`  ✓ Parameter form ready (${spec.groups?.length ?? 0} groups)`, "tool-end");
         console.log("[gxy3-ui] showParameters complete");
       } catch (err) {
         console.error("[gxy3-ui] parameters parse/render error:", err);
-        clearButtonBusy(reviewParamsBtn as HTMLButtonElement);
-      }
+        }
     }
   }
 });

@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 import type { BrowserWindow } from "electron";
 
 // Resolve the gxy3 entry point relative to the app
@@ -56,15 +58,37 @@ export class AgentManager {
     return this.process?.pid ?? null;
   }
 
+  /**
+   * Check if Pi.dev has any saved sessions for the current cwd.
+   * Pi stores sessions in ~/.pi/agent/sessions/<encoded-cwd>/ as .jsonl files.
+   * Used on first launch to decide whether to pass --continue for a soft resume.
+   */
+  private hasExistingSession(): boolean {
+    try {
+      // Pi encodes cwd by replacing / with - and wrapping in --...--
+      const encoded = `--${this.cwd.replace(/\//g, "-")}--`;
+      const sessionsDir = path.join(os.homedir(), ".pi", "agent", "sessions", encoded);
+      if (!fs.existsSync(sessionsDir)) return false;
+      const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith(".jsonl"));
+      return files.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   start(): void {
     if (this.process) this.stop();
     this.stderr = "";
 
-    // On restart (model switch, save preferences, etc.), pass --continue to
-    // resume the previous session and preserve chat history. First start of a
-    // new cwd/session uses no flag → fresh session.
+    // Pass --continue to resume the previous session and preserve chat history:
+    // - Always on restart within the same app run (model switch, prefs save)
+    // - On first launch (!hasStartedBefore), only if a Pi session exists for this cwd
+    // Fresh /new sessions bypass this (nextStartIsFresh → no --continue).
+    const wantsContinue =
+      !this.nextStartIsFresh &&
+      (this.hasStartedBefore || this.hasExistingSession());
     const args = [GXY3_BIN, "--mode", "rpc"];
-    if (this.hasStartedBefore) {
+    if (wantsContinue) {
       args.push("--continue");
     }
     this.hasStartedBefore = true;

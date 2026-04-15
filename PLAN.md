@@ -72,38 +72,49 @@ add a one-time auto-reveal of the artifact pane on the first such event.
 
 No `/chat` or `/plan` slash commands. No masthead segmented control.
 
-### 3. Galaxy as a capability, not a session mode
+### 3. Local / Remote mode toggle
 
-There is no `local` / `hybrid` / `remote` session mode. Galaxy is a *capability*
-the agent can use when configured.
+Two-mode toggle in the masthead, simpler than the original three-mode proposal:
 
-**Preferences additions**:
-- Existing Galaxy URL + API key fields stay in their current location
-- New radio: "When Galaxy is configured, prefer: ( ) Local execution
-  (•) Galaxy for large jobs"
-- Default value: `prefer-galaxy`
-- Stored in `Gxy3Config.executionPreference: "local" | "galaxy"`
+| Mode | Behavior |
+|------|----------|
+| **Local** | Galaxy tools NOT exposed to the agent. Everything runs locally via `run_command`. Hard kill switch. |
+| **Remote** | Galaxy tools ARE exposed. Agent decides per-job (default policy: prefer Galaxy for large jobs >5min/>10GB). User overrides in conversation. |
+
+**Masthead UI**: segmented control `[Local|Remote]` next to the model indicator.
+Persists per-session, last choice saved in `Gxy3Config.executionMode`. If Galaxy
+is not configured, Remote is disabled and locked on Local with a tooltip
+pointing to Preferences.
+
+**Tool gating**: in Local mode, `bin/gxy3.js` skips the Galaxy MCP server
+registration entirely (the block at `bin/gxy3.js:130-145`), so Galaxy tools
+are simply not in the agent's tool list. Switching modes restarts the agent
+(existing config-change behavior).
 
 **Agent awareness via system prompt** (in
 `extensions/galaxy-analyst/context.ts`):
 
 ```
-## Execution backends
+## Execution mode: {{mode}}
 
-You have access to the following execution backends:
-- local: run_command (always available)
-- galaxy: galaxy_run_tool, galaxy_invoke_workflow [if configured]
+[Local mode]
+You are in Local mode. Galaxy tools are NOT available. All execution
+must be local via run_command. If the user asks for Galaxy, explain
+that Local mode is on and they can switch to Remote in the masthead.
 
-Default policy: prefer Galaxy for large/long-running jobs (>5min, >10GB),
-fall back to local for quick tasks.   [or: prefer local for everything,
-only use Galaxy when the user explicitly requests it]
+[Remote mode]
+You are in Remote mode. Both backends are available:
+- local: run_command (for quick tasks <5min, <10GB)
+- galaxy: galaxy_run_tool, galaxy_invoke_workflow ({{galaxyUrl}})
+  (for large/long-running jobs, reproducibility-critical work)
 
-The user can always override in conversation ("run this on Galaxy", "do this
-locally"). Honor the override.
+Default: prefer Galaxy for jobs estimated >5min or >10GB. Use local
+otherwise. Honor user overrides ("run this locally", "use Galaxy
+for everything").
 ```
 
-The agent decides per-job; the user overrides in conversation when they care.
-No mid-session mode confusion.
+The agent decides per-job in Remote mode; the user gets a hard kill switch in
+Local mode.
 
 ## What changes
 
@@ -120,9 +131,11 @@ No mid-session mode confusion.
 | `app/src/renderer/index.html` | Add `#welcome-overlay` div with the welcome form. Add divider collapse button. |
 | `app/src/renderer/styles.css` | Welcome screen styles. `body.artifact-collapsed` rules. Collapse button hover. |
 | `app/src/renderer/app.ts` | First-run detection (no API key → show welcome). Auto-reveal artifact pane on first plan event. Collapse/expand toggle handler. `Cmd/Ctrl+\` shortcut. localStorage persistence. |
-| `extensions/galaxy-analyst/config.ts` | Add `executionPreference?: "local" \| "galaxy"` to `Gxy3Config`. Default `"galaxy"`. |
-| `extensions/galaxy-analyst/context.ts` | Inject Galaxy availability + execution preference into system prompt. |
-| `bin/gxy3.js` | No change. Existing `checkLLMProvider()` error message stays for CLI users. |
+| `extensions/galaxy-analyst/config.ts` | Add `executionMode?: "local" \| "remote"` to `Gxy3Config`. Default `"local"`. |
+| `extensions/galaxy-analyst/context.ts` | Inject execution mode + Galaxy URL into system prompt with mode-specific guidance. |
+| `bin/gxy3.js` | Conditionally register Galaxy MCP server based on `executionMode`. In Local mode, skip the `mcpConfig.mcpServers.galaxy` block. |
+| `app/src/renderer/index.html` | Add `[Local\|Remote]` segmented control in `#chat-header`. |
+| `app/src/renderer/app.ts` (additional) | Wire mode toggle: click → save config → restart agent. Disable when Galaxy unconfigured. |
 
 ### Existing functions to reuse
 

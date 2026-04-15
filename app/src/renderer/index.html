@@ -19,6 +19,10 @@
         <button id="model-indicator" title="Click to change model" class="hidden">
           <span id="model-indicator-name">—</span>
         </button>
+        <div id="exec-mode-toggle" class="seg-control" title="Execution mode">
+          <button data-mode="local" class="active">Local</button>
+          <button data-mode="remote">Remote</button>
+        </div>
         <div id="usage-bar" title="Session token usage">
           <span id="usage-tokens">0 tok</span>
           <span id="usage-cost"></span>
@@ -27,6 +31,12 @@
           <span id="cwd-path" title="Analysis directory">~</span>
           <button id="cwd-change" title="Change directory">change</button>
         </div>
+        <button id="artifact-toggle" title="Toggle artifact pane (Ctrl+\)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="15" y1="3" x2="15" y2="21"/>
+          </svg>
+        </button>
       </div>
       <div id="messages"></div>
 
@@ -189,6 +199,78 @@
         <div class="modal-actions">
           <button id="prefs-cancel" class="plan-btn">Cancel</button>
           <button id="prefs-save" class="plan-btn execute">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- First-run Welcome Overlay -->
+  <div id="welcome-overlay" class="modal-overlay hidden">
+    <div class="modal welcome-modal">
+      <div class="modal-header">
+        <h2>Welcome to gxy3</h2>
+      </div>
+      <div class="modal-body">
+        <p class="welcome-intro">
+          gxy3 is an AI-driven bioinformatics analysis app. Configure your LLM provider
+          to get started. You can change settings later in Preferences.
+        </p>
+
+        <section class="prefs-section">
+          <h3>LLM Provider <span class="required">*required</span></h3>
+          <div class="prefs-row">
+            <label for="welcome-provider">Provider</label>
+            <select id="welcome-provider">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="google">Google (Gemini)</option>
+              <option value="mistral">Mistral</option>
+              <option value="groq">Groq</option>
+              <option value="xai">xAI</option>
+              <option value="ollama">Ollama (local)</option>
+            </select>
+          </div>
+          <div class="prefs-row">
+            <label for="welcome-model">Model</label>
+            <select id="welcome-model"></select>
+          </div>
+          <div class="prefs-row">
+            <label for="welcome-api-key">API Key</label>
+            <input id="welcome-api-key" type="password" placeholder="sk-..." />
+          </div>
+        </section>
+
+        <details class="welcome-details">
+          <summary>Galaxy server (optional)</summary>
+          <div class="prefs-row">
+            <label for="welcome-galaxy-url">URL</label>
+            <input id="welcome-galaxy-url" type="text" placeholder="https://usegalaxy.org" />
+          </div>
+          <div class="prefs-row">
+            <label for="welcome-galaxy-key">API Key</label>
+            <input id="welcome-galaxy-key" type="password" placeholder="Galaxy API key" />
+          </div>
+          <p class="welcome-hint">
+            Configure Galaxy to enable Remote execution mode. You can do this later in
+            Preferences.
+          </p>
+        </details>
+
+        <details class="welcome-details">
+          <summary>Working directory (optional)</summary>
+          <div class="prefs-row">
+            <label for="welcome-cwd">Default directory</label>
+            <div class="prefs-row-with-btn">
+              <input id="welcome-cwd" type="text" placeholder="~/gxy3-analyses" />
+              <button id="welcome-browse-cwd" class="plan-btn">Browse</button>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="modal-footer">
+        <span id="welcome-error" class="welcome-error"></span>
+        <div class="modal-actions">
+          <button id="welcome-save" class="plan-btn execute">Save and continue</button>
         </div>
       </div>
     </div>

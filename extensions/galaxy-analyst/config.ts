@@ -20,6 +20,8 @@ export interface Gxy3Config {
     active: string | null;
     profiles: Record<string, { url: string; apiKey: string }>;
   };
+  /** "local" = no Galaxy MCP server. "remote" = Galaxy MCP available. Default: "local". */
+  executionMode?: "local" | "remote";
 }
 
 export function getConfigDir(): string {

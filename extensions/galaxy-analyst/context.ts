@@ -7,6 +7,42 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { getCurrentPlan, getState, formatPlanSummary, getWorkflowSteps, getBRCContext } from "./state";
+import { loadConfig } from "./config";
+
+/** Build the execution-mode block injected into every system prompt. */
+function buildExecutionModeContext(): string {
+  const cfg = loadConfig();
+  const mode = cfg.executionMode || "local";
+  const galaxyUrl = process.env.GALAXY_URL || cfg.galaxy?.profiles?.[cfg.galaxy.active || ""]?.url;
+
+  if (mode === "local") {
+    return `
+## Execution mode: Local
+
+Galaxy tools are NOT available in this session. All execution must be local
+via \`run_command\` (or the analysis_plan_* / Galaxy MCP tools that don't
+require server access).
+
+If the user asks you to run something on Galaxy, explain that Local mode is
+on and they can switch to Remote in the masthead toggle.
+`;
+  }
+
+  return `
+## Execution mode: Remote (Galaxy: ${galaxyUrl || "configured"})
+
+Both local and Galaxy backends are available:
+- **local**: \`run_command\` (for quick tasks, exploration, anything <5min/<10GB)
+- **galaxy**: \`galaxy_run_tool\`, \`galaxy_invoke_workflow\`, etc. (for large/long-running jobs)
+
+Default policy: prefer Galaxy for jobs you estimate will take >5 minutes or
+require >10GB. Use local for everything else.
+
+Honor user overrides in conversation:
+- "run this locally" → use \`run_command\`
+- "use Galaxy for everything" → use Galaxy MCP tools, even for small jobs
+`;
+}
 
 export function setupContextInjection(pi: ExtensionAPI): void {
 
@@ -62,6 +98,7 @@ Your first response should gather enough context to create the plan (research qu
 data description, expected outcomes), then call \`analysis_plan_create\` in the same turn.
 If the researcher's opening message already contains this information, create the plan
 right away without asking clarifying questions first.
+${buildExecutionModeContext()}
 ${brcSection}
 ${galaxyContext}
 `
@@ -131,6 +168,7 @@ ${planSummary}
 - One sentence when one sentence suffices. Never repeat what the user said.
 - Do NOT use exclamation marks, "Great!", "Excellent!", "Sure!", or similar.
 - Minimize emoji usage. Plain text is preferred.
+${buildExecutionModeContext()}
 ${workflowContext}${brcSection}
 ${galaxyContext}
 `

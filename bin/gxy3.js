@@ -126,6 +126,10 @@ if (!isInfoCmd && !existsSync(gxy3ConfigPath)) {
   }
 }
 
+// Execution mode: "local" (default) skips Galaxy MCP entirely.
+// "remote" registers Galaxy MCP server so the agent can use Galaxy tools.
+const executionMode = config.executionMode || "local";
+
 let mcpConfig = {};
 if (!isInfoCmd) {
   if (existsSync(mcpConfigPath)) {
@@ -137,27 +141,33 @@ if (!isInfoCmd) {
   }
 
   mcpConfig.mcpServers = mcpConfig.mcpServers || {};
-  if (!mcpConfig.mcpServers.galaxy) {
-    mcpConfig.mcpServers.galaxy = {
-      command: "uvx",
-      args: ["galaxy-mcp"],
-    };
-  }
-  if (!mcpConfig.mcpServers.galaxy.directTools) {
-    mcpConfig.mcpServers.galaxy.directTools = true;
-  }
 
-  // Apply Galaxy credentials from config
-  if (config.galaxy?.active && config.galaxy.profiles) {
-    const active = config.galaxy.profiles[config.galaxy.active];
-    if (active) {
-      if (!process.env.GALAXY_URL) process.env.GALAXY_URL = active.url;
-      if (!process.env.GALAXY_API_KEY) process.env.GALAXY_API_KEY = active.apiKey;
-      mcpConfig.mcpServers.galaxy.env = {
-        GALAXY_URL: active.url,
-        GALAXY_API_KEY: active.apiKey,
+  if (executionMode === "remote") {
+    if (!mcpConfig.mcpServers.galaxy) {
+      mcpConfig.mcpServers.galaxy = {
+        command: "uvx",
+        args: ["galaxy-mcp"],
       };
     }
+    if (!mcpConfig.mcpServers.galaxy.directTools) {
+      mcpConfig.mcpServers.galaxy.directTools = true;
+    }
+
+    // Apply Galaxy credentials from config
+    if (config.galaxy?.active && config.galaxy.profiles) {
+      const active = config.galaxy.profiles[config.galaxy.active];
+      if (active) {
+        if (!process.env.GALAXY_URL) process.env.GALAXY_URL = active.url;
+        if (!process.env.GALAXY_API_KEY) process.env.GALAXY_API_KEY = active.apiKey;
+        mcpConfig.mcpServers.galaxy.env = {
+          GALAXY_URL: active.url,
+          GALAXY_API_KEY: active.apiKey,
+        };
+      }
+    }
+  } else {
+    // Local mode: ensure Galaxy MCP server is removed if it was previously registered
+    delete mcpConfig.mcpServers.galaxy;
   }
 
   mkdirSync(dirname(mcpConfigPath), { recursive: true });

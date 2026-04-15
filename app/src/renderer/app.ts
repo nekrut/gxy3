@@ -161,6 +161,146 @@ modelIndicatorEl.addEventListener("click", () => {
   void openPreferences();
 });
 
+// ── Artifact pane collapse/expand ────────────────────────────────────────────
+
+const ARTIFACT_COLLAPSED_KEY = "gxy3.artifactCollapsed";
+const artifactToggleBtn = document.getElementById("artifact-toggle")!;
+
+function setArtifactCollapsed(collapsed: boolean): void {
+  document.body.classList.toggle("artifact-collapsed", collapsed);
+  localStorage.setItem(ARTIFACT_COLLAPSED_KEY, collapsed ? "1" : "0");
+}
+
+// Default: collapsed (single-pane chat). Auto-reveals on first plan event.
+const savedCollapsed = localStorage.getItem(ARTIFACT_COLLAPSED_KEY);
+setArtifactCollapsed(savedCollapsed === null ? true : savedCollapsed === "1");
+
+artifactToggleBtn.addEventListener("click", () => {
+  setArtifactCollapsed(!document.body.classList.contains("artifact-collapsed"));
+});
+
+// Cmd/Ctrl+\ keyboard shortcut
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
+    e.preventDefault();
+    setArtifactCollapsed(!document.body.classList.contains("artifact-collapsed"));
+  }
+});
+
+// ── Execution mode toggle (Local / Remote) ───────────────────────────────────
+
+const execModeToggle = document.getElementById("exec-mode-toggle")!;
+const execModeButtons = execModeToggle.querySelectorAll<HTMLButtonElement>("button");
+
+function applyExecModeUI(mode: "local" | "remote", galaxyConfigured: boolean): void {
+  execModeButtons.forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+    if (b.dataset.mode === "remote") {
+      b.disabled = !galaxyConfigured;
+      b.title = galaxyConfigured ? "Remote: agent can use Galaxy" : "Configure Galaxy in Preferences to enable Remote mode";
+    } else {
+      b.title = "Local: all jobs run locally";
+    }
+  });
+}
+
+async function loadExecModeFromConfig(): Promise<void> {
+  const cfg = (await window.gxy3.getConfig()) as Record<string, unknown>;
+  const mode = (cfg.executionMode as "local" | "remote") || "local";
+  const galaxy = cfg.galaxy as { active?: string; profiles?: Record<string, unknown> } | undefined;
+  const galaxyConfigured = !!(galaxy?.active && galaxy?.profiles?.[galaxy.active]);
+  applyExecModeUI(mode, galaxyConfigured);
+}
+void loadExecModeFromConfig();
+
+execModeButtons.forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    const mode = btn.dataset.mode as "local" | "remote";
+    if (btn.classList.contains("active")) return;
+
+    // Save mode to config and restart agent
+    const cfg = (await window.gxy3.getConfig()) as Record<string, unknown>;
+    cfg.executionMode = mode;
+    await window.gxy3.saveConfig(cfg);
+    chat.addInfoMessage(`<i>Execution mode → <b>${mode}</b>. Agent restarting…</i>`);
+    await loadExecModeFromConfig();
+  });
+});
+
+// ── First-run welcome screen ─────────────────────────────────────────────────
+
+const welcomeOverlay = document.getElementById("welcome-overlay")!;
+const welcomeProvider = document.getElementById("welcome-provider") as HTMLSelectElement;
+const welcomeModel = document.getElementById("welcome-model") as HTMLSelectElement;
+const welcomeApiKey = document.getElementById("welcome-api-key") as HTMLInputElement;
+const welcomeGalaxyUrl = document.getElementById("welcome-galaxy-url") as HTMLInputElement;
+const welcomeGalaxyKey = document.getElementById("welcome-galaxy-key") as HTMLInputElement;
+const welcomeCwd = document.getElementById("welcome-cwd") as HTMLInputElement;
+const welcomeBrowseCwd = document.getElementById("welcome-browse-cwd")!;
+const welcomeSave = document.getElementById("welcome-save")!;
+const welcomeError = document.getElementById("welcome-error")!;
+
+function populateWelcomeModels(provider: string): void {
+  welcomeModel.innerHTML = "";
+  const models = MODELS_BY_PROVIDER[provider] || [];
+  for (const m of models) {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    opt.textContent = m.label;
+    welcomeModel.appendChild(opt);
+  }
+}
+populateWelcomeModels(welcomeProvider.value);
+welcomeProvider.addEventListener("change", () => populateWelcomeModels(welcomeProvider.value));
+
+welcomeBrowseCwd.addEventListener("click", async () => {
+  const dir = await window.gxy3.selectDirectory();
+  if (dir) welcomeCwd.value = dir;
+});
+
+welcomeSave.addEventListener("click", async () => {
+  welcomeError.textContent = "";
+  const apiKey = welcomeApiKey.value.trim();
+  if (!apiKey) {
+    welcomeError.textContent = "API key is required";
+    return;
+  }
+
+  const cfg: Record<string, unknown> = {
+    llm: {
+      provider: welcomeProvider.value,
+      model: welcomeModel.value,
+      apiKey,
+    },
+    executionMode: "local",
+  };
+
+  const galaxyUrl = welcomeGalaxyUrl.value.trim();
+  const galaxyKey = welcomeGalaxyKey.value.trim();
+  if (galaxyUrl && galaxyKey) {
+    cfg.galaxy = {
+      active: "default",
+      profiles: { default: { url: galaxyUrl, apiKey: galaxyKey } },
+    };
+  }
+
+  const cwd = welcomeCwd.value.trim();
+  if (cwd) cfg.defaultCwd = cwd;
+
+  await window.gxy3.saveConfig(cfg);
+  welcomeOverlay.classList.add("hidden");
+  await loadExecModeFromConfig();
+});
+
+async function checkFirstRun(): Promise<void> {
+  const cfg = (await window.gxy3.getConfig()) as { llm?: { apiKey?: string } };
+  if (!cfg.llm?.apiKey) {
+    welcomeOverlay.classList.remove("hidden");
+  }
+}
+void checkFirstRun();
+
 function captureUsage(event: Record<string, unknown>): void {
   // message_start carries model info; message updates carry rolling usage
   const msg = event.message as Record<string, unknown> | undefined;
@@ -575,8 +715,9 @@ window.gxy3.onUiRequest((request) => {
     if (key === "plan" && lines) {
       console.log("[gxy3-ui] plan widget received, lines:", lines.length);
       artifacts.setPlanText(lines.join("\n"));
-      // First plan: switch to it. Updates: just mark new and let user navigate.
+      // First plan: auto-reveal artifact pane and switch to Plan tab.
       if (!hasShownPlanOnce) {
+        setArtifactCollapsed(false);
         switchTab("plan");
         hasShownPlanOnce = true;
       } else {

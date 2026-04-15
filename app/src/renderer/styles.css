@@ -104,6 +104,72 @@ html, body {
   background: var(--accent-light);
 }
 
+/* Collapsed artifact pane: chat takes full width */
+body.artifact-collapsed #artifact-pane,
+body.artifact-collapsed #divider {
+  display: none;
+}
+body.artifact-collapsed #chat-pane {
+  flex: 1 1 100%;
+}
+
+/* Segmented control (Local | Remote) */
+.seg-control {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 11px;
+}
+.seg-control button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+.seg-control button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.seg-control button.active {
+  background: var(--accent);
+  color: var(--galaxy-dark);
+}
+.seg-control button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Artifact toggle button in masthead */
+#artifact-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+#artifact-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+body.artifact-collapsed #artifact-toggle {
+  color: var(--text-dim);
+}
+body:not(.artifact-collapsed) #artifact-toggle {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
 /* ── Masthead (shared header style) ───────────────────────────────────────── */
 
 #chat-header {
@@ -659,6 +725,52 @@ html, body {
 
 .hidden {
   display: none !important;
+}
+
+/* ── Welcome screen ──────────────────────────────────────────────────────── */
+
+.welcome-modal {
+  width: 540px;
+  max-width: 90vw;
+}
+.welcome-intro {
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+.welcome-details {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+.welcome-details summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 4px 0;
+}
+.welcome-details[open] summary {
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.welcome-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-top: 8px;
+  font-style: italic;
+}
+.welcome-error {
+  color: var(--error);
+  font-size: 12px;
+}
+.required {
+  color: var(--error);
+  font-size: 11px;
+  font-weight: normal;
+  margin-left: 6px;
 }
 
 /* ── Modal / Preferences ──────────────────────────────────────────────────── */

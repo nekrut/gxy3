@@ -27,6 +27,18 @@ galaxy:
 
 ## Analysis Plan
 
+### Step 1: FastQC
+
+```yaml
+step:
+  id: "1"
+  name: "FastQC"
+  status: pending
+  execution:
+    type: tool
+```
+
+**Purpose**: QC check
 ---
 
 ## Execution Log

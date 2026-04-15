@@ -1,40 +1,52 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   gxy3 — Galaxy-style light theme
+   gxy3 — Galaxy brand dark theme
    ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Galaxy palette */
-  --masthead: #2c3143;          /* brand-dark */
-  --masthead-text: #f8f9fa;     /* grey-100 */
-  --masthead-hover: gold;       /* brand-toggle */
+  /* Galaxy brand palette */
+  --galaxy-primary: #25537b;
+  --galaxy-dark: #2c3143;
+  --galaxy-dark-mid: #3c435c;
+  --galaxy-gold: #ffd700;
+  --galaxy-gold-dark: #d19e00;
+
+  /* Semantic tokens */
+  --masthead: #2c3143;
+  --masthead-text: #f0f2f8;
+  --masthead-hover: #ffd700;
   --masthead-height: 40px;
 
-  --bg: #ffffff;                /* white — center panel */
-  --bg-surface: #f8f9fa;        /* grey-100 — cards, inputs */
-  --bg-deep: #f0f2f4;           /* between grey-100 and grey-200 */
-  --bg-hover: #e9ecef;          /* hover state */
-  --bg-chat: #f8f9fa;           /* chat pane background */
-  --bg-artifact: #ffffff;       /* artifact pane background */
+  --bg: #2c3143;
+  --bg-surface: #343a50;
+  --bg-deep: #232838;
+  --bg-hover: #3c435c;
+  --bg-chat: #2c3143;
+  --bg-artifact: #2c3143;
 
-  --text: #2c3143;              /* brand-dark */
-  --text-dim: #63656d;          /* grey-500 */
-  --text-bright: #191919;       /* grey-900 */
+  --text: #f0f2f8;
+  --text-dim: rgba(248, 250, 252, 0.45);
+  --text-bright: #f8fafc;
 
-  --accent: #25537b;            /* blue-600 / brand-primary */
-  --accent-light: #48a1dd;      /* blue-400 */
-  --accent-bg: #daecf8;         /* blue-200 */
+  --accent: #ffd700;
+  --accent-light: #ffd700;
+  --accent-bg: rgba(255, 215, 0, 0.15);
+  --accent-hover: #d19e00;
 
-  --success: #66cc66;           /* green-500 */
-  --success-bg: #e0f7df;        /* green-200 */
-  --warning: #fe7f02;           /* orange-600 */
-  --error: #e31a1e;             /* red-600 */
-  --error-bg: #fdd4d5;          /* red-200 */
+  --success: #4ade80;
+  --success-bg: rgba(74, 222, 128, 0.15);
+  --warning: #fbbf24;
+  --error: #f87171;
+  --error-bg: rgba(248, 113, 113, 0.12);
 
-  --border: #dee2e6;            /* grey-200 */
-  --border-strong: #aab0b4;     /* grey-300 */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
   --radius: 6px;
   --font: Monaco, Menlo, Consolas, "Courier New", monospace;
   --font-sans: "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Step status colors (dark theme) */
+  --state-ok-border: #4ade80;
+  --state-error-border: #f87171;
 }
 
 * {
@@ -257,8 +269,8 @@ html, body {
 }
 
 .message.user {
-  background: var(--accent-bg);
-  border: 1px solid #b8d4ea;
+  background: var(--galaxy-primary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   align-self: flex-end;
   max-width: 85%;
   color: var(--text-bright);
@@ -585,7 +597,7 @@ html, body {
 }
 
 .shell-line.shell-tool-start { color: #80c3ea; }
-.shell-line.shell-tool-end { color: #66cc66; padding-left: 16px; }
+.shell-line.shell-tool-end { color: var(--success); padding-left: 16px; }
 .shell-line.shell-tool-error { color: #ff817b; padding-left: 16px; }
 .shell-line.shell-status { color: #c8a200; }
 .shell-line.shell-info { color: rgba(255, 255, 255, 0.5); }
@@ -623,7 +635,7 @@ html, body {
 #send-btn,
 #abort-btn {
   background: var(--accent);
-  color: #fff;
+  color: var(--galaxy-dark);
   border: none;
   border-radius: var(--radius);
   width: 36px;
@@ -1077,25 +1089,25 @@ html, body {
 .plan-btn.execute {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--galaxy-dark);
 }
 
 .plan-btn.execute:hover {
-  background: var(--accent-light);
-  border-color: var(--accent-light);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .plan-btn.primary {
   background: var(--accent-bg);
-  border-color: var(--accent-light);
+  border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;
 }
 
 .plan-btn.primary:hover {
-  background: var(--accent-light);
+  background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--galaxy-dark);
 }
 
 /* Busy state — used on any .plan-btn when a request is in flight */
@@ -1310,9 +1322,9 @@ html, body {
 
 /* TEST RUN banner shown in Results tab during test mode */
 .test-run-banner {
-  background: #fff3cd;
-  border: 1px solid #ffc107;
-  color: #856404;
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid var(--warning);
+  color: var(--warning);
   padding: 8px 12px;
   border-radius: var(--radius);
   font-size: 12px;
@@ -1330,21 +1342,21 @@ html, body {
 
 /* ── Step DAG (Galaxy history-item style) ─────────────────────────────────── */
 
-/* Galaxy state colors */
+/* Galaxy state colors (dark theme) */
 :root {
-  --state-ok-bg: #e0f7df;         /* green-200 — success background */
-  --state-ok-border: #c8edc8;     /* green-300 */
-  --state-ok-text: #006f50;       /* green-700 */
-  --state-running-bg: #ffedd5;    /* orange-200 — running background */
-  --state-running-border: #ffc985; /* orange-300 */
-  --state-running-text: #9b3a00;  /* orange-700 */
-  --state-error-bg: #fdd4d5;      /* red-200 */
-  --state-error-border: #f4a3a5;  /* red-300 */
-  --state-error-text: #91081b;    /* red-700 */
-  --state-new-bg: #f8f9fa;        /* grey-100 — pending/queued */
-  --state-new-border: #dee2e6;    /* grey-200 */
-  --state-paused-bg: #daecf8;     /* blue-200 — info */
-  --state-paused-border: #b8d4ea;
+  --state-ok-bg: rgba(74, 222, 128, 0.15);
+  --state-ok-border: #4ade80;
+  --state-ok-text: #4ade80;
+  --state-running-bg: rgba(251, 191, 36, 0.15);
+  --state-running-border: #fbbf24;
+  --state-running-text: #fbbf24;
+  --state-error-bg: rgba(248, 113, 113, 0.12);
+  --state-error-border: #f87171;
+  --state-error-text: #f87171;
+  --state-new-bg: rgba(255, 255, 255, 0.05);
+  --state-new-border: rgba(255, 255, 255, 0.15);
+  --state-paused-bg: rgba(37, 83, 123, 0.3);
+  --state-paused-border: #3a7ab5;
 }
 
 /* ── Step Graph (React Flow) ─────────────────────────────────────────────── */

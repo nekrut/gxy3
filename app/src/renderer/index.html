@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>gxy3</title>
+  <title>orbit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
@@ -15,7 +15,7 @@
     <div id="chat-pane" class="pane">
       <div id="chat-header">
         <img src="./assets/galaxy-logo.svg" alt="Galaxy" class="masthead-logo" />
-        <span class="logo">gxy3</span>
+        <span class="logo">orbit</span>
         <span id="agent-status" class="status-badge">connecting...</span>
         <button id="model-indicator" title="Click to change model" class="hidden">
           <span id="model-indicator-name">—</span>
@@ -41,6 +41,29 @@
       </div>
       <div id="messages"></div>
 
+      <!-- Process monitor — collapsible strip showing live stats for local subprocesses -->
+      <div id="proc-monitor" class="hidden">
+        <div id="proc-monitor-header">
+          <span>Running processes <span id="proc-monitor-count">0</span></span>
+          <button id="proc-monitor-close" title="Hide">×</button>
+        </div>
+        <div id="proc-monitor-body">
+          <table id="proc-monitor-table">
+            <thead>
+              <tr>
+                <th>PID</th>
+                <th>CPU%</th>
+                <th>MEM%</th>
+                <th>RSS</th>
+                <th>Time</th>
+                <th>Command</th>
+              </tr>
+            </thead>
+            <tbody id="proc-monitor-rows"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Agent shell — collapsible activity log at the bottom of the chat pane -->
       <div id="agent-shell" class="hidden">
         <div id="agent-shell-header">
@@ -52,6 +75,7 @@
       </div>
 
       <div id="input-area">
+        <span id="queued-indicator" class="hidden" title="Queued — will send when agent is ready">queued ↓</span>
         <textarea
           id="input"
           placeholder="Describe your analysis..."
@@ -70,6 +94,7 @@
       </div>
       <div id="input-hint">
         <span>Tip: <code>/help</code> for commands · <code>/model sonnet</code> to switch LLM · <code>/new</code> for a fresh session</span>
+        <button id="proc-monitor-toggle" title="Toggle process monitor">▸ procs</button>
         <button id="agent-shell-toggle" title="Toggle agent shell">▸ shell</button>
       </div>
     </div>
@@ -82,7 +107,7 @@
       <div id="artifact-tabs">
         <button class="tab active" data-tab="plan">Plan</button>
         <button class="tab" data-tab="steps">Steps</button>
-        <button class="tab" data-tab="results">Results</button>
+        <button class="tab" data-tab="results">Notebook</button>
       </div>
       <div id="artifact-content">
         <div id="tab-plan" class="tab-panel active">
@@ -96,29 +121,25 @@
           <div id="plan-rendered" class="plan-rendered hidden"></div>
           <textarea id="plan-raw" class="plan-editor hidden" spellcheck="false"></textarea>
           <div id="plan-actions" class="plan-actions hidden">
-            <button id="review-params-btn" class="plan-btn primary">Review parameters</button>
-            <button id="plan-test-run-btn" class="plan-btn primary">Test run (minimal data)</button>
-            <button id="plan-execute-btn" class="plan-btn execute">Execute (real data)</button>
+            <div class="plan-hint">
+              Use slash commands: <code>/review</code>, <code>/test</code>, <code>/execute</code>
+            </div>
           </div>
 
-          <!-- Phase 4: Parameter configuration form (replaces plan view when active) -->
+          <!-- Parameter configuration form (replaces plan view when active) -->
           <div id="plan-params-view" class="plan-params-view hidden">
             <div class="plan-params-back-row">
               <button id="params-back-btn" class="plan-params-back" title="Discard changes">&larr; Back to plan</button>
               <button id="params-save-btn" class="plan-btn primary" title="Save parameters and return to plan">Save parameters</button>
             </div>
             <div id="plan-params-form" class="param-form"></div>
-            <div id="plan-params-actions" class="plan-actions">
-              <button id="test-run-btn" class="plan-btn primary">Test run (minimal data)</button>
-              <button id="execute-with-params-btn" class="plan-btn execute">Execute (real data)</button>
-            </div>
           </div>
         </div>
         <div id="tab-steps" class="tab-panel">
           <div class="empty-state">Pipeline steps will appear here once a plan is created.</div>
         </div>
         <div id="tab-results" class="tab-panel">
-          <div class="empty-state">Results will appear here as the analysis runs.</div>
+          <div class="empty-state">Notebook entries will appear here as the analysis runs.</div>
         </div>
       </div>
     </div>
@@ -209,11 +230,11 @@
   <div id="welcome-overlay" class="modal-overlay hidden">
     <div class="modal welcome-modal">
       <div class="modal-header">
-        <h2>Welcome to gxy3</h2>
+        <h2>Welcome to orbit</h2>
       </div>
       <div class="modal-body">
         <p class="welcome-intro">
-          gxy3 is an AI-driven bioinformatics analysis app. Configure your LLM provider
+          orbit is an AI-driven bioinformatics analysis app. Configure your LLM provider
           to get started. You can change settings later in Preferences.
         </p>
 

@@ -86,7 +86,7 @@ parameters. When the researcher makes selections, record them with \`brc_set_con
 
       return {
         systemPrompt: `
-## gxy3 Status
+## orbit Status
 No active analysis plan.
 
 **Start a plan immediately.** As soon as the researcher describes their question or data,
@@ -194,7 +194,7 @@ ${galaxyContext}
 
       ctx.ui.setStatus("galaxy-plan", statusText);
     } else {
-      ctx.ui.setStatus("galaxy-plan", "🔬 gxy3 ready");
+      ctx.ui.setStatus("galaxy-plan", "🔬 orbit ready");
     }
   });
 }

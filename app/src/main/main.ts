@@ -8,6 +8,7 @@ import { registerIpcHandlers } from "./ipc-handlers.js";
 // Workaround for systems where chrome-sandbox isn't suid root
 app.commandLine.appendSwitch("no-sandbox");
 import { AgentManager } from "./agent.js";
+import { ProcMonitor } from "./proc-monitor.js";
 
 const GXY3_DIR = path.join(os.homedir(), ".gxy3");
 const WINDOW_STATE_FILE = path.join(GXY3_DIR, "window-state.json");
@@ -52,6 +53,7 @@ function saveWindowState(win: BrowserWindow): void {
 
 let mainWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let procMonitor: ProcMonitor | null = null;
 
 function getDefaultCwd(): string {
   // Priority: env var > config.json > hardcoded default
@@ -108,7 +110,7 @@ function createWindow(cwd: string): void {
     ...saved,
     minWidth: 800,
     minHeight: 600,
-    title: "gxy3",
+    title: "orbit",
     icon: appIcon,
     show: true,
     webPreferences: {
@@ -160,9 +162,12 @@ function createWindow(cwd: string): void {
   agentManager = new AgentManager(mainWindow, cwd);
   registerIpcHandlers(agentManager);
 
+  procMonitor = new ProcMonitor(mainWindow, () => agentManager?.getPid() ?? null);
+
   mainWindow.webContents.once("did-finish-load", () => {
     log("renderer loaded, starting agent");
     agentManager!.start();
+    procMonitor!.start();
   });
 
   // ── Diagnostic listeners for display-sleep UI-wipe bug ─────────────────────
@@ -213,7 +218,7 @@ function openPreferences(): void {
 function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: "gxy3",
+      label: "orbit",
       submenu: [
         { role: "about" },
         { type: "separator" },
@@ -283,8 +288,8 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// Set app name early so Linux WM_CLASS matches "gxy3"
-app.setName("gxy3");
+// Set app name early so Linux WM_CLASS matches "orbit"
+app.setName("orbit");
 
 app.whenReady().then(() => {
   log("app ready");

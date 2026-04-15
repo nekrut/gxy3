@@ -43,48 +43,64 @@ export default function galaxyAnalystExtension(pi: ExtensionAPI): void {
     // Reset state on new session
     resetState();
 
-    // First, check for notebooks in the current working directory
-    const cwd = process.cwd();
-    try {
-      const notebooks = await findNotebooks(cwd);
+    // GXY3_FRESH_SESSION=1 → user invoked /new and wants a clean slate.
+    // Skip notebook auto-load and skip session-entry restore.
+    const freshSession = process.env.GXY3_FRESH_SESSION === "1";
 
-      if (notebooks.length === 1) {
-        // Auto-load single notebook
-        const plan = await loadNotebook(notebooks[0].path);
-        if (plan) {
-          const completed = plan.steps.filter(s => s.status === 'completed').length;
+    if (!freshSession) {
+      // First, check for notebooks in the current working directory
+      const cwd = process.cwd();
+      try {
+        const notebooks = await findNotebooks(cwd);
+
+        if (notebooks.length === 1) {
+          // Auto-load single notebook
+          const plan = await loadNotebook(notebooks[0].path);
+          if (plan) {
+            const completed = plan.steps.filter(s => s.status === 'completed').length;
+            ctx.ui.notify(
+              `Loaded notebook: ${plan.title} (${completed}/${plan.steps.length} steps)`,
+              "info"
+            );
+          }
+        } else if (notebooks.length > 1) {
+          // Multiple notebooks found - notify user
           ctx.ui.notify(
-            `Loaded notebook: ${plan.title} (${completed}/${plan.steps.length} steps)`,
+            `Found ${notebooks.length} notebooks. Use analysis_notebook_open to select one.`,
             "info"
           );
         }
-      } else if (notebooks.length > 1) {
-        // Multiple notebooks found - notify user
-        ctx.ui.notify(
-          `Found ${notebooks.length} notebooks. Use analysis_notebook_open to select one.`,
-          "info"
-        );
+      } catch {
+        // Notebook loading failed, fall back to session entries
       }
-    } catch {
-      // Notebook loading failed, fall back to session entries
+
+      // Fall back to restoring from session entries
+      try {
+        const entries = ctx.sessionManager?.getEntries?.() || [];
+        const planEntries = entries.filter(
+          (e) => e.type === "custom" && (e as { customType?: string }).customType === "galaxy_analyst_plan"
+        );
+
+        if (planEntries.length > 0) {
+          const latestEntry = planEntries[planEntries.length - 1] as { type: "custom"; data?: unknown };
+          if (latestEntry.data) {
+            restorePlan(latestEntry.data as AnalysisPlan);
+            ctx.ui.notify(`Restored plan: ${(latestEntry.data as AnalysisPlan).title}`, "info");
+          }
+        }
+      } catch {
+        // Session manager may not be available in all contexts
+      }
     }
 
-    // Fall back to restoring from session entries
-    try {
-      const entries = ctx.sessionManager?.getEntries?.() || [];
-      const planEntries = entries.filter(
-        (e) => e.type === "custom" && (e as { customType?: string }).customType === "galaxy_analyst_plan"
-      );
-
-      if (planEntries.length > 0) {
-        const latestEntry = planEntries[planEntries.length - 1] as { type: "custom"; data?: unknown };
-        if (latestEntry.data) {
-          restorePlan(latestEntry.data as AnalysisPlan);
-          ctx.ui.notify(`Restored plan: ${(latestEntry.data as AnalysisPlan).title}`, "info");
-        }
-      }
-    } catch {
-      // Session manager may not be available in all contexts
+    // Skip the initial LLM greeting in two cases:
+    // 1. Fresh /new session — user wants to type immediately.
+    // 2. --continue restart (model switch, preferences save, mode toggle) —
+    //    chat history is already restored and the user already saw the
+    //    previous greeting; a new one would be redundant.
+    const isContinue = process.argv.includes("--continue");
+    if (freshSession || isContinue) {
+      return;
     }
 
     // Kick off an initial LLM turn with a proper greeting
@@ -127,14 +143,14 @@ export default function galaxyAnalystExtension(pi: ExtensionAPI): void {
       // Fresh session with Galaxy credentials
       pi.sendUserMessage(
         `Session started, no existing analysis in this directory. ` +
-        `Give a brief welcome to gxy3, then ask what I'd like to work on — what research question or data do I have? ` +
+        `Give a brief welcome to orbit, then ask what I'd like to work on — what research question or data do I have? ` +
         `Keep the greeting to 2-3 sentences.${connectInstr}`
       );
     } else {
       // Fresh session, no credentials
       pi.sendUserMessage(
         `Session started, no existing analysis in this directory and no Galaxy server configured. ` +
-        `Give a brief welcome to gxy3, mention I can use /connect to set up a Galaxy server, ` +
+        `Give a brief welcome to orbit, mention I can use /connect to set up a Galaxy server, ` +
         `and ask what I'd like to work on. Keep it to 2-3 sentences.`
       );
     }
@@ -428,7 +444,7 @@ export default function galaxyAnalystExtension(pi: ExtensionAPI): void {
       const plan = getCurrentPlan();
 
       const lines: string[] = [];
-      lines.push("🔬 gxy3 Status");
+      lines.push("🔬 orbit Status");
       lines.push("");
 
       // Connection status

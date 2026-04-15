@@ -192,6 +192,144 @@ flexibility and the user control where they want it, without a UI toggle.
 - Multi-account Galaxy profiles
 - Per-message "send to Galaxy" override button
 - Welcome screen tutorial / sample analyses
+- **Plan switcher dropdown** in masthead — currently only one plan is visible
+  in the artifact pane at a time; creating a new plan replaces the view (the
+  old plan is preserved on disk as `<title>-notebook.md`). Previous plans can
+  only be brought back by asking the agent ("switch to my MRSA plan"). A
+  dropdown listing notebooks in the current working directory would let the
+  user click to switch directly. ~60 lines: `notebooks:list` IPC handler in
+  main, masthead `<select>` element, renderer wiring that on selection sends
+  a programmatic prompt to call `analysis_notebook_open`. The findNotebooks(),
+  analysis_notebook_open, and analysis_notebook_list pieces already exist in
+  `extensions/galaxy-analyst/`.
+
+- **Font upgrade** — chat currently uses Atkinson Hyperlegible (accessibility-
+  focused, prioritizes letter distinction over visual rhythm; reads as uneven).
+  Replace with Inter (body) + JetBrains Mono (code blocks, tool output, shell
+  panel). Inter is geometric, neutral, designed for screens; pairs well with
+  the dark Galaxy palette. JetBrains Mono has tall x-height and ligatures
+  (`=>`, `!=`, `>=`) that improve readability of code at small sizes.
+  Implementation: download woff2 files (Inter Regular/Medium/SemiBold/Bold,
+  JetBrains Mono Regular/Bold) into `app/src/renderer/assets/fonts/`, add
+  `@font-face` rules to a new `app/src/renderer/fonts.css`, import from
+  `index.html`, update two CSS variables in `styles.css` (`--font` and
+  `--font-sans`). ~15 minutes. Alternative pairings: IBM Plex Sans + Mono
+  (humanist, warmer), Geist + Geist Mono (sharper, more compact).
+
+- **Missing spaces between text blocks after tool calls** — when the agent
+  produces text, calls a tool, then produces more text, the chat-panel
+  concatenates the two text blocks without a separator. Example:
+  `"...find its associated sequencing data.Found the data!"` — no space
+  between `data.` and `Found`. Root cause: in `chat-panel.ts` the
+  `appendDelta()` path keeps adding to the current message; when a tool
+  call interrupts and a new `text_start` fires, the renderer either
+  starts a new message (losing visual continuity) or continues the same
+  message without inserting whitespace. Fix options:
+    1. In `chat-panel.ts`, on `text_start` after a tool call (within the
+       same assistant message), prepend `\n\n` to the new text block.
+    2. Track `lastWasToolCall` in the message state; if true, insert a
+       separator before the next text delta.
+    3. Have the extension tell the agent in the system prompt to always
+       begin post-tool text with a space or newline. Less reliable — the
+       LLM may forget.
+  Recommended: option 1 or 2 (renderer-side). ~10 lines in
+  `app/src/renderer/chat/chat-panel.ts`.
+
+- **Step kill button (×) on DAG nodes** — let the user cancel a running step
+  (and its descendants) directly from the Steps tab without going through
+  the agent. Add a small × button to each `StepNode` in
+  `app/src/renderer/artifacts/step-graph-react.tsx`, visible on hover or
+  always for `in_progress` steps. Click → confirm dialog → kill.
+
+  **Cascade logic** (shared): walk `dependsOn` in reverse from the killed
+  step to find all dependents transitively. Mark them `skipped`. Don't touch
+  sibling branches.
+
+  **Two implementation paths:**
+
+  - *Path A — LLM-mediated (MVP, ~25 lines).* On click, send a programmatic
+    prompt: `"Cancel step <name> (id: <id>) and mark all its dependents as
+    skipped"`. Agent calls `cancel_command` + `analysis_plan_update_step` in
+    its next turn. Pros: minimal code, no new IPC, no extension changes.
+    Cons: LLM round-trip adds 2-5s latency; relies on the agent to correctly
+    compute the cascade.
+
+  - *Path B — Direct kill with step→PID tracking (~120 lines).* Extension
+    tracks `stepId → pid[]` when `run_command` is invoked while a step is
+    `in_progress`. New IPC `step:kill {stepId, cascade: true}` → main →
+    agent stdin (new JSON-RPC method) → extension kills PID, walks the
+    dependsOn graph, marks statuses, fires `onPlanChange`. DAG updates
+    immediately via the existing bridge. Pros: instant and reliable, no
+    LLM round-trip. Cons: requires new IPC method and step→PID association
+    in the extension.
+
+  **Recommendation**: ship Path A first. Upgrade to Path B if the LLM
+  round-trip feels laggy in practice.
+
+- **Process monitor pane** — small collapsible strip showing live stats for
+  every command currently spawned by the agent (backgrounded or foreground).
+  Fields: PID, command (truncated), CPU %, memory (RSS + %), runtime,
+  thread count. Data source: main process walks the agent process tree
+  (`pgrep --parent <agent_pid>` recursively, or `ps --forest -p <agent_pid>`)
+  every 2-3 seconds, parses `ps -o pid,pcpu,pmem,rss,etime,nlwp,comm`,
+  emits `proc:update` IPC events. Renderer subscribes and renders a table.
+  No extension cooperation needed — main already knows the agent PID from
+  `AgentManager`. Stop polling when the process list is empty to save CPU.
+
+  Placement options: strip at the top of the artifact pane, or bottom of
+  the chat pane (mirroring the existing `#agent-shell` pattern). Collapsible.
+
+  Files: `app/src/main/proc-monitor.ts` (new, ~50 lines), `app/src/renderer/
+  proc-monitor-panel.ts` (new, ~40 lines), HTML+CSS additions (~30 lines).
+  Total ~120 lines, 1-2 hours.
+
+  Platform notes: Linux+macOS share the `ps -o` format. Windows (native)
+  would need `wmic` or `tasklist` — skip for now since Windows users run
+  via WSL2 which is Linux. RSS is KB on Linux, blocks on macOS; add a
+  platform check.
+
+- **Ask-while-running ("/btw" pattern)** — let the user check job status
+  without waiting for the current turn to finish. Two complementary pieces:
+
+    1. **Default to background mode for long jobs.** Update the agent's
+       system prompt (in `extensions/galaxy-analyst/context.ts`) to instruct
+       the LLM: "For commands you estimate will run >30 seconds, use
+       background mode. Return the process ID, end the turn, and let the
+       user check status with check_process when they ask." This means
+       `streaming` becomes false quickly and the user can interject any
+       time. ~10 lines (prompt edit only — `run_command` background mode
+       already exists).
+
+    2. **Queue-while-streaming UX.** When the agent is mid-turn and the
+       user types a message, stash it instead of dropping it. On `agent_end`,
+       auto-submit the queued message. Add `pendingMessage: string \| null`
+       to renderer state, modify `submit()` to check streaming, modify the
+       `agent_end` handler to flush. Show a "queued ↓" indicator near the
+       send button so the user knows it's waiting. ~30 lines in
+       `app/src/renderer/app.ts`.
+
+  Together these give a Claude-Code-like "/btw" feel without needing a
+  side-channel worker or parallel agent runs. True parallel side-channel
+  queries (Case 3 in the design discussion) are out of scope — Pi.dev runs
+  one turn at a time.
+
+- **Two-model configuration** (planner / executor split) — most cost in the
+  app comes from creating plans (reasoning-heavy) versus executing them
+  (mostly mechanical: call tool → check result → update step). Today the
+  user can switch models manually with `/model sonnet` after the plan is
+  approved, but it's a manual step. Add to Preferences:
+    - `llm.plannerModel` (default: claude-opus-4-6) — used during plan
+      creation / refinement
+    - `llm.executorModel` (default: claude-sonnet-4-6) — used after the
+      plan is approved or when "Execute" is clicked
+  Auto-switch trigger: when the user clicks the Execute button (or when the
+  agent transitions a step from `pending` → `in_progress` for the first
+  time after plan approval), call the existing `switchModelByAlias()` flow
+  with the executor model. The `--continue` flag preserves chat history
+  across the switch. The user can override with `/model <name>` at any time.
+  Cost impact: ~5x reduction on execution turns (Opus $15/$75 → Sonnet
+  $3/$15). ~40 lines: two model fields in Preferences, one config check
+  in the execute-plan button handler, one call to `switchModelByAlias`.
 
 ---
 

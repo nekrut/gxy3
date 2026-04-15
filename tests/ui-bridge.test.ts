@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toShellSteps } from "../extensions/galaxy-analyst/ui-bridge";
-import { createPlan, addStep, updateStepStatus, resetState, onPlanChange, formatPlanSummary } from "../extensions/galaxy-analyst/state";
+import { createPlan, addStep, updateStepStatus, resetState, onPlanChange, formatPlanSummary, addStepOutputs, linkInvocation } from "../extensions/galaxy-analyst/state";
 import type { AnalysisPlan } from "../extensions/galaxy-analyst/types";
 
 describe("ui-bridge", () => {
@@ -192,6 +192,53 @@ describe("ui-bridge", () => {
       onPlanChange(() => { count++; });
       updateStepStatus("1", "in_progress");
       expect(count).toBeGreaterThan(0);
+    });
+
+    it("fires when addStepOutputs is called", () => {
+      resetState();
+      createPlan({
+        title: "Test",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+      addStep({
+        name: "S1",
+        description: "D1",
+        executionType: "tool",
+        inputs: [],
+        expectedOutputs: [],
+        dependsOn: [],
+      });
+      let fired = false;
+      onPlanChange(() => { fired = true; });
+      addStepOutputs("1", [{ datasetId: "d1", name: "reads.bam", datatype: "bam" }]);
+      expect(fired).toBe(true);
+    });
+
+    it("fires when linkInvocation is called", () => {
+      resetState();
+      createPlan({
+        title: "Test",
+        researchQuestion: "Q",
+        dataDescription: "D",
+        expectedOutcomes: [],
+        constraints: [],
+      });
+      addStep({
+        name: "Workflow",
+        description: "A workflow step",
+        executionType: "workflow",
+        workflowId: "wf-1",
+        inputs: [],
+        expectedOutputs: [],
+        dependsOn: [],
+      });
+      let fired = false;
+      onPlanChange(() => { fired = true; });
+      linkInvocation("1", "inv-123");
+      expect(fired).toBe(true);
     });
   });
 });

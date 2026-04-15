@@ -1,6 +1,8 @@
-# gxy3
+# orbit
 
-AI-driven bioinformatics analysis desktop app. Replaces Galaxy's web UI with a chat-based interface where biologists describe analyses in natural language and an AI agent handles execution — locally for small/medium tasks, on Galaxy for large-scale compute.
+AI-driven bioinformatics analysis desktop app in the Galaxy Project ecosystem. Replaces Galaxy's web UI with a chat-based interface where biologists describe analyses in natural language and an AI agent handles execution — locally for small/medium tasks, on Galaxy for large-scale compute.
+
+> Internal / repo name: `gxy3`. The user-facing name is **orbit**.
 
 ## How it works
 

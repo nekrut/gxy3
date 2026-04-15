@@ -266,6 +266,22 @@ flexibility and the user control where they want it, without a UI toggle.
   **Recommendation**: ship Path A first. Upgrade to Path B if the LLM
   round-trip feels laggy in practice.
 
+- **Process monitor: full command line** — the monitor currently truncates
+  the command to 80 chars in `proc-monitor.ts` (`MAX_COMMAND_LEN = 80`) and
+  uses `ps -o comm=` which only shows the program name, not the full argv.
+  Show the complete command line so the user can see what arguments were
+  passed (useful for debugging which wget URL is running, which samtools
+  subcommand, etc.). Two changes:
+    1. Switch `ps` format from `comm=` to `args=` (or `command=`) to get
+       the full argv including arguments.
+    2. Drop the 80-char truncation in `proc-monitor.ts` and instead let
+       the renderer truncate visually via CSS (`.col-cmd` already has
+       `text-overflow: ellipsis`). Keep the full command in the `title`
+       attribute so hovering shows the complete string.
+    3. Optional: make the command column expandable (click to wrap) or
+       add a "show full" toggle in the monitor header.
+  ~5-line change in `proc-monitor.ts` + CSS tweak. 5 minutes.
+
 - **Process monitor pane** — small collapsible strip showing live stats for
   every command currently spawned by the agent (backgrounded or foreground).
   Fields: PID, command (truncated), CPU %, memory (RSS + %), runtime,

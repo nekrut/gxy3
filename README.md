@@ -8,8 +8,8 @@ AI-driven bioinformatics analysis desktop app in the Galaxy Project ecosystem. R
 
 1. User describes an analysis in the chat pane (e.g., "assemble these MRSA genomes with autocycler")
 2. Agent creates a plan and displays it in the artifact pane for review
-3. User approves (edits optional), agent executes step by step
-4. Progress shown as a visual DAG; results rendered in the Results tab
+3. User reviews parameters (`/review`), approves, and runs the plan (`/test` on sample data, `/execute` on real data)
+4. Progress shown as a visual DAG; results rendered in the Notebook tab
 
 ## Architecture
 
@@ -17,12 +17,13 @@ AI-driven bioinformatics analysis desktop app in the Galaxy Project ecosystem. R
 Electron App
 ├── Main Process (Node.js)
 │   ├── Pi.dev Agent Runtime (LLM interaction, tool-use loop)
-│   ├── gxy3 Extension (plan management, execution, Galaxy bridge)
+│   ├── galaxy-analyst extension (plan management, 5-phase lifecycle, Galaxy API)
+│   ├── Process monitor (ps tree polling for live subprocess stats)
 │   └── IPC Layer (typed channels to renderer)
 ├── Preload (contextBridge)
-└── Renderer (two-pane layout)
-    ├── Left:  Chat (streaming messages, thinking indicator, tool cards)
-    └── Right: Artifacts (plan editor, visual DAG, typed results)
+└── Renderer
+    ├── Chat pane (streaming messages, thinking indicator, tool cards, queue-while-streaming)
+    └── Artifact pane (collapsible; Plan / Steps / Notebook tabs)
 ```
 
 ## Tech stack
@@ -35,47 +36,30 @@ Electron App
 | Agent | Pi.dev (`@mariozechner/pi-coding-agent`) |
 | MCP bridge | `pi-mcp-adapter` |
 | Markdown | `marked` |
-| UI theme | Galaxy-derived (Atkinson Hyperlegible, Galaxy color palette) |
+| DAG | React Flow + dagre |
+| Fonts | Inter (body), JetBrains Mono (code) |
+| Theme | Galaxy brand dark (`#2c3143` + gold accent `#ffd700`) |
 
 ## Current state
 
-### Phase 1: Skeleton ✓
-- Electron + Vite + forge setup
-- Pi.dev agent running as RPC subprocess
-- Two-pane layout with draggable divider
-- Chat with streaming markdown and tool cards
+### Implemented
+- **Electron shell** with streaming chat, thinking indicator, tool cards, queue-while-streaming
+- **Single-pane chat by default**; artifact pane auto-reveals when the agent creates a plan, collapsible via button or `Cmd/Ctrl+\`
+- **React Flow DAG** in the Steps tab (dagre layout, clickable nodes with details panel)
+- **Plan tab** with rendered markdown + raw edit modes
+- **Notebook tab** with typed result blocks (markdown, tables, images, file links)
+- **Process monitor** — live stats (CPU, memory, runtime) for every subprocess spawned by the agent
+- **Cost/token header** with pricing for Claude 4.5/4.6, GPT-4o, Gemini 2.5
+- **Preferences dialog** (⌘,): LLM provider/model/key, Galaxy credentials, default directory
+- **First-run welcome screen** — single-page form for LLM key + optional Galaxy + working directory
+- **Local/Remote execution mode toggle** in the masthead (Local skips Galaxy MCP entirely; Remote exposes Galaxy tools and the agent chooses per-job)
+- **Galaxy brand theme** (dark palette, gold accents, Galaxy logo in masthead and dock icon)
+- **galaxy-analyst extension** (merged from pi-galaxy-analyst): 5-phase lifecycle, Galaxy API client, notebook persistence with YAML frontmatter + git auto-commit, BRC catalog context, 35+ tools
+- **Session management**: `/new` for a clean slate, `--continue` restart for preference changes, fresh-session detection that skips notebook auto-load
+- **Slash commands**: `/review`, `/test`, `/execute`, `/plan`, `/status`, `/notebook`, `/decisions`, `/connect`, `/model`, `/new`, `/help`
 
-### Phase 2: Plan + Artifacts ✓
-- `display_plan` / `update_step` / `get_plan` tools
-- Plan rendering (markdown + raw edit modes)
-- Visual DAG with SVG bezier connectors and branching for parallel steps
-- Clickable step nodes showing executed command + explanation
-- Galaxy-style history item colors for step status (green=done, orange=running, red=failed)
-- Notebook persistence (markdown+YAML) with git auto-commit
-- Thinking indicator ("... thinking" bubble + status badge)
-- Working directory display in header with change button
-
-### Phase 3: Local Execution ✓
-- `install_tools` — conda/mamba env creation with bioconda+conda-forge
-- `run_command` — shell execution with auto conda env activation, background mode, timeout
-- `check_process` / `cancel_command` — process management
-- `report_result` — typed results to Results tab (markdown, tables, images, file links)
-- HTML reports open in a new Electron window
-- Session token/cost display in header (pricing for Claude 4.5/4.6, GPT-4o, o1, Gemini 2.5)
-- Preferences dialog (⌘,): LLM provider/model/key, Galaxy credentials, default directory, package manager
-
-### Phase 4: Galaxy Bridge (planned)
-- MCP bridge to galaxy-mcp subprocess
-- Galaxy tools (connect, run, upload, get results)
-- Mixed local + Galaxy execution
-
-### Phase 5: End-to-End (planned)
-- Full prototype scenario: read paper, plan assembly, execute, display results
-- Workflow reader (learn from existing Snakemake/Nextflow/CWL pipelines)
-
-### Phase 6: GitHub artifact sharing (planned)
-- Agent-driven `git push` via existing `gh` CLI / SSH / PAT
-- No new UI — agent detects auth and handles everything through chat
+### Future improvements
+See the **"Out of scope (future improvements)"** section in [PLAN.md](PLAN.md) for the current backlog: plan switcher dropdown, two-model planner/executor split, step kill button, ask-while-running pattern, process monitor full command line, and more.
 
 ## Installation
 

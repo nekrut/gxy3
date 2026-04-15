@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, powerMonitor } from "electron";
+import { app, BrowserWindow, Menu, dialog, powerMonitor, nativeImage } from "electron";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs";
 import path from "node:path";
@@ -99,11 +99,17 @@ function createWindow(cwd: string): void {
   log("creating window, cwd:", cwd);
   const saved = loadWindowState();
 
+  // Galaxy logo icon (used as window/dock icon)
+  const iconPath = path.join(__dirname, "../../src/renderer/assets/icons/icon-512.png");
+  const appIcon = nativeImage.createFromPath(iconPath);
+  log("icon path:", iconPath, "empty:", appIcon.isEmpty(), "size:", appIcon.getSize());
+
   mainWindow = new BrowserWindow({
     ...saved,
     minWidth: 800,
     minHeight: 600,
     title: "gxy3",
+    icon: appIcon,
     show: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -112,6 +118,11 @@ function createWindow(cwd: string): void {
       sandbox: false,
     },
   });
+
+  // Set dock icon on macOS
+  if (process.platform === "darwin" && !appIcon.isEmpty()) {
+    app.dock?.setIcon(appIcon);
+  }
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
@@ -271,6 +282,9 @@ function buildMenu(): void {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+// Set app name early so Linux WM_CLASS matches "gxy3"
+app.setName("gxy3");
 
 app.whenReady().then(() => {
   log("app ready");

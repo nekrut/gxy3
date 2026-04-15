@@ -184,6 +184,12 @@ body:not(.artifact-collapsed) #artifact-toggle {
   color: var(--masthead-text);
 }
 
+.masthead-logo {
+  height: 22px;
+  width: auto;
+  filter: brightness(0) invert(1);
+}
+
 .logo {
   font-family: var(--font);
   font-weight: 700;

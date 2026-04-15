@@ -111,9 +111,11 @@ await server.listen();
 const port = server.config.server.port;
 console.log(`[gxy3] Renderer: http://localhost:${port}/`);
 
-// Launch Electron with dev server URL
+// Launch Electron with dev server URL.
+// --class=gxy3 sets WM_CLASS so GNOME/KDE match the gxy3.desktop file
+// (installed at ~/.local/share/applications/) for the dock/launcher icon.
 console.log("[gxy3] Launching Electron...");
-const child = spawn(ELECTRON, ["--no-sandbox", "."], {
+const child = spawn(ELECTRON, ["--no-sandbox", "--class=gxy3", "."], {
   cwd: __dirname,
   stdio: "inherit",
   env: {

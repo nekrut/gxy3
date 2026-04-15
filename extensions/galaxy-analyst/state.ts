@@ -74,9 +74,13 @@ let state: AnalystState = {
 type PlanChangeListener = (plan: AnalysisPlan | null) => void;
 const planChangeListeners: PlanChangeListener[] = [];
 
-/** Register a callback that fires on every plan mutation. */
-export function onPlanChange(listener: PlanChangeListener): void {
+/** Register a callback that fires on every plan mutation. Returns unsubscribe function. */
+export function onPlanChange(listener: PlanChangeListener): () => void {
   planChangeListeners.push(listener);
+  return () => {
+    const idx = planChangeListeners.indexOf(listener);
+    if (idx >= 0) planChangeListeners.splice(idx, 1);
+  };
 }
 
 function notifyPlanChange(): void {

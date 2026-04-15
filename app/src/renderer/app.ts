@@ -602,15 +602,12 @@ window.gxy3.onUiRequest((request) => {
       } catch { /* ignore parse errors */ }
     }
 
-    // pi-galaxy-analyst text widgets → route to appropriate UI
+    // pi-galaxy-analyst text widgets
     if (key === "plan-view" && lines) {
+      // Same as "plan" — route to Plan tab
       artifacts.setPlanText(lines.join("\n"));
-      if (!hasShownPlanOnce) {
-        switchTab("plan");
-        hasShownPlanOnce = true;
-      } else {
-        markTabNew("plan");
-      }
+      if (!hasShownPlanOnce) { switchTab("plan"); hasShownPlanOnce = true; }
+      else { markTabNew("plan"); }
     }
 
     if ((key === "status-view" || key === "decisions-view" || key === "notebook-view" || key === "profiles-view") && lines) {

@@ -130,8 +130,6 @@ const EXPECTED_TOOLS = [
   "gtn_fetch",
 
   // Shell-facing tools (gxy3 Electron UI)
-  "display_plan",
-  "update_step",
   "report_result",
   "analyze_plan_parameters",
 ];

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { toShellSteps, planToMarkdown } from "../extensions/galaxy-analyst/ui-bridge";
-import { createPlan, addStep, updateStepStatus, resetState, onPlanChange } from "../extensions/galaxy-analyst/state";
+import { toShellSteps } from "../extensions/galaxy-analyst/ui-bridge";
+import { createPlan, addStep, updateStepStatus, resetState, onPlanChange, formatPlanSummary } from "../extensions/galaxy-analyst/state";
 import type { AnalysisPlan } from "../extensions/galaxy-analyst/types";
 
 describe("ui-bridge", () => {
@@ -106,7 +106,7 @@ describe("ui-bridge", () => {
     });
   });
 
-  describe("planToMarkdown", () => {
+  describe("formatPlanSummary", () => {
     it("renders plan title, phase, and steps", () => {
       resetState();
       const plan = createPlan({
@@ -126,13 +126,11 @@ describe("ui-bridge", () => {
         dependsOn: [],
       });
 
-      const md = planToMarkdown(plan);
-      expect(md).toContain("# RNA-seq Analysis");
-      expect(md).toContain("**Phase:** problem definition");
-      expect(md).toContain("## Research Question");
+      const md = formatPlanSummary(plan);
+      expect(md).toContain("RNA-seq Analysis");
+      expect(md).toContain("Problem Definition");
       expect(md).toContain("differentially expressed");
-      expect(md).toContain("## Steps");
-      expect(md).toContain("**FastQC**");
+      expect(md).toContain("FastQC");
     });
   });
 

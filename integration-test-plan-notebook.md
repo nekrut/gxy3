@@ -1,10 +1,10 @@
 ---
-plan_id: "fbe43447-34eb-475b-aea6-170c7e03709a"
+plan_id: "2fad0a9d-5e87-4669-b7c0-9e5dda3bfe32"
 title: "Integration Test Plan"
 status: draft
 phase: problem_definition
-created: "2026-04-15T20:44:36.580Z"
-updated: "2026-04-15T20:44:36.580Z"
+created: "2026-04-15T20:44:57.183Z"
+updated: "2026-04-15T20:44:57.183Z"
 
 galaxy:
   server_url: ""

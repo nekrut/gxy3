@@ -23,6 +23,165 @@ As a prototype analysis use analsys performed in /media/anton/data/git/S_aureus.
 
 ---
 
+# Conceptual Rethink (2026-04-15, simplified)
+
+An earlier version of this section proposed a 3-step welcome wizard, an explicit
+chat/plan UI mode toggle, and a session-level execution mode (`local` / `hybrid`
+/ `remote`). After review, all three were dropped as friction without clear
+benefit. The simpler model:
+
+## Application flow
+
+### 1. First-run welcome screen (single page)
+
+On first launch (no `~/.gxy3/config.json`, or `config.llm?.apiKey` is missing),
+the renderer shows a `#welcome-overlay` full-screen form instead of the chat UI.
+Single page, two collapsed-by-default sections:
+
+- **LLM Provider** (required): provider dropdown + API key + model dropdown.
+  Reuses the field set from the existing Preferences dialog
+  (`app/src/renderer/index.html:125-154`).
+- **Galaxy server** (optional, collapsed): URL + API key. Same fields as
+  Preferences (`app/src/renderer/index.html:156-166`).
+- **Working directory** (optional, collapsed): path picker.
+
+On Save → `window.gxy3.saveConfig()` → existing IPC handler at
+`app/src/main/ipc-handlers.ts:88-103` writes `~/.gxy3/config.json` and restarts
+the agent → renderer hides the welcome overlay → shows chat.
+
+No 3-step wizard; one page, all fields visible at once with sensible defaults.
+
+### 2. Single-pane default + collapsible artifact pane
+
+There is no `chat` vs `plan` UI mode. The agent decides whether a request
+warrants a structured plan based on its complexity. The artifact pane is shown
+when there's something to show.
+
+**Initial layout**: chat fills the window. Artifact pane is hidden.
+
+**Auto-show on plan creation**: when the agent calls `analysis_plan_create`
+the bridge fires `setWidget("plan", ...)` and `setWidget("steps", ...)`. The
+renderer (`app/src/renderer/app.ts:557-602`) already handles these; we just
+add a one-time auto-reveal of the artifact pane on the first such event.
+
+**Manual collapse/expand**:
+- Button on the divider (or in the masthead) toggles `body.artifact-collapsed`
+- `Cmd/Ctrl+\` keyboard shortcut (familiar from VS Code)
+- CSS: `body.artifact-collapsed #artifact-pane { display: none }`
+- State persists to `localStorage` so the layout is remembered across launches
+
+No `/chat` or `/plan` slash commands. No masthead segmented control.
+
+### 3. Galaxy as a capability, not a session mode
+
+There is no `local` / `hybrid` / `remote` session mode. Galaxy is a *capability*
+the agent can use when configured.
+
+**Preferences additions**:
+- Existing Galaxy URL + API key fields stay in their current location
+- New radio: "When Galaxy is configured, prefer: ( ) Local execution
+  (•) Galaxy for large jobs"
+- Default value: `prefer-galaxy`
+- Stored in `Gxy3Config.executionPreference: "local" | "galaxy"`
+
+**Agent awareness via system prompt** (in
+`extensions/galaxy-analyst/context.ts`):
+
+```
+## Execution backends
+
+You have access to the following execution backends:
+- local: run_command (always available)
+- galaxy: galaxy_run_tool, galaxy_invoke_workflow [if configured]
+
+Default policy: prefer Galaxy for large/long-running jobs (>5min, >10GB),
+fall back to local for quick tasks.   [or: prefer local for everything,
+only use Galaxy when the user explicitly requests it]
+
+The user can always override in conversation ("run this on Galaxy", "do this
+locally"). Honor the override.
+```
+
+The agent decides per-job; the user overrides in conversation when they care.
+No mid-session mode confusion.
+
+## What changes
+
+### Files to create
+
+| File | Role |
+|------|------|
+| `app/src/renderer/welcome.ts` | NEW — welcome form logic, mirrors `openPreferences` / `savePreferences` |
+
+### Files to modify
+
+| File | Change |
+|------|--------|
+| `app/src/renderer/index.html` | Add `#welcome-overlay` div with the welcome form. Add divider collapse button. |
+| `app/src/renderer/styles.css` | Welcome screen styles. `body.artifact-collapsed` rules. Collapse button hover. |
+| `app/src/renderer/app.ts` | First-run detection (no API key → show welcome). Auto-reveal artifact pane on first plan event. Collapse/expand toggle handler. `Cmd/Ctrl+\` shortcut. localStorage persistence. |
+| `extensions/galaxy-analyst/config.ts` | Add `executionPreference?: "local" \| "galaxy"` to `Gxy3Config`. Default `"galaxy"`. |
+| `extensions/galaxy-analyst/context.ts` | Inject Galaxy availability + execution preference into system prompt. |
+| `bin/gxy3.js` | No change. Existing `checkLLMProvider()` error message stays for CLI users. |
+
+### Existing functions to reuse
+
+| Function | Location |
+|----------|----------|
+| `openPreferences()` | `app/src/renderer/app.ts:948` |
+| `savePreferences()` | `app/src/renderer/app.ts:977` |
+| `window.gxy3.getConfig()` / `saveConfig()` | `app/src/preload/preload.ts` |
+| `loadConfig()` / `saveConfig()` | `extensions/galaxy-analyst/config.ts:33` |
+| `formatPlanSummary()` | `extensions/galaxy-analyst/state.ts:832` |
+| `openExternalUrlWindow()` | `app/src/main/main.ts:80` |
+| `setWidget("plan", ...)` handler | `app/src/renderer/app.ts:565` |
+
+### What we are NOT building
+
+- Chat/plan UI mode toggle. No `/chat`, `/plan` slash commands. No masthead segmented control.
+- Session execution mode (`local` / `hybrid` / `remote`). No masthead dropdown.
+- 3-step welcome wizard.
+- Inline plotly charts in chat (defer; agent can write HTML to disk and use `report_result` with type=file → `openExternalUrlWindow`).
+- Multiple LLM provider keys at once (one active provider; user switches in Preferences).
+
+## Verification
+
+1. `rm ~/.gxy3/config.json && cd app && npm start` → welcome overlay appears, NOT chat
+2. Fill in Anthropic key only, leave Galaxy/working dir collapsed, click Save → welcome hides, chat fills window
+3. Type "what is FastQC?" → quick markdown answer in chat, artifact pane stays hidden
+4. Type "create a plan for QC of these FASTQs" → agent calls `analysis_plan_create`, artifact pane slides in with Plan tab populated
+5. Click divider collapse button → artifact pane hides
+6. Press `Cmd+\` → artifact pane reappears
+7. Reload app → comes up in last layout state
+8. Open Preferences, configure Galaxy URL + key, set "prefer Galaxy for large jobs" → save → restart agent
+9. Ask agent "is Galaxy configured?" → agent confirms via context injection
+10. Ask agent to "run this on Galaxy" → uses `galaxy_run_tool` from Galaxy MCP
+11. Without Galaxy configured, ask agent to "use Galaxy" → agent says it's not configured, points to Preferences
+
+## Why the chat/plan toggle and session execution mode were dropped
+
+**Chat/plan toggle**: real bioinformatics requests don't cleanly split into
+"conversational" vs "structured" — "show me read length distribution" is a quick
+question that requires running a tool. Forcing the user to classify their
+question before asking is friction the agent should absorb. Compare Claude Code,
+ChatGPT, Cursor — none make you pick a mode. The artifact pane appears
+contextually when there's a plan to show; users can collapse it like a sidebar.
+
+**Session execution mode**: per-session is the wrong granularity. "Hybrid" was
+undefined ("large jobs" — measured how?), and locking the mode at session start
+can't accommodate mid-session "actually run this on Galaxy" overrides. Treating
+Galaxy as a capability (with one default-bias setting) gives the agent
+flexibility and the user control where they want it, without a UI toggle.
+
+## Out of scope (future improvements)
+
+- Inline plotly / Vega-Lite chart rendering in chat
+- Multi-account Galaxy profiles
+- Per-message "send to Galaxy" override button
+- Welcome screen tutorial / sample analyses
+
+---
+
 # Implementation Plan
 
 ## Vision
